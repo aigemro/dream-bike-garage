@@ -1,0 +1,19 @@
+name: 기능
+description: 게임 기능 개발 작업
+title: "[Feature] "
+labels: ["type: feature"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목표
+      description: 플레이어 또는 팀이 얻는 결과를 적어주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 완료 조건
+      placeholder: "- [ ] 조건 1"
+    validations:
+      required: true
