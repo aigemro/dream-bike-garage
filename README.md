@@ -13,6 +13,17 @@ Workshop에서 부품을 생성하고 같은 부품을 합쳐 완성차를 만�
 - 주문 3개와 Garage 20칸
 - MVP 제외: Match-3, 스태미너, 광고, 과금
 
+### 플레이 방법
+
+1. `WORKSHOP`을 눌러 Frame → Wheel → Drive 순서로 T1 부품을 생산합니다.
+2. 같은 종류·티어의 아이템을 서로 드래그하면 상위 티어 1개로 합쳐집니다.
+3. T3 Frame·Wheel·Drive를 하나씩 만든 뒤 `BUILD BIKE`로 Entry Bike를 조립합니다.
+4. 같은 Bike 두 대를 합쳐 Carbon, 다시 두 대를 합쳐 Flagship으로 진화시킵니다.
+5. 현재 주문과 같은 티어의 Bike가 있으면 `DELIVER`로 납품합니다.
+6. Entry·Carbon·Flagship 주문을 모두 완료하면 MVP 핵심 루프가 끝납니다.
+
+우측 아래 `RESET`으로 언제든 새 게임을 시작할 수 있습니다.
+
 ## 시작하기
 
 ```bash
