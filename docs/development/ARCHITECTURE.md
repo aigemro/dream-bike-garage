@@ -18,3 +18,10 @@
 - `docs/development`: 개발자가 관리하는 기술 문서
 - `prompts`: 재사용 가능한 AI 작업 프롬프트
 - `tests`: 도메인 단위 테스트
+
+## MVP 상태 흐름
+
+`GameState`는 보드 아이템, 주문 완료 목록, Garage 수집 목록과 ID 생성 상태를
+보유합니다. Phaser Scene은 버튼·드래그 입력을 도메인 함수에 전달하고 반환된
+새 상태를 다시 렌더링합니다. Merge·조립·납품 규칙은 Phaser에 의존하지 않아
+Vitest로 독립 검증할 수 있습니다.
