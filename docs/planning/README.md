@@ -13,4 +13,16 @@
 
 ## 문서 목록
 
-- [게임 마케팅 기획 요약](./game-marketing-plan.md)
+- [초기 게임 마케팅 기획안](./game-marketing-plan.md)
+  - 상태: Deprecated / 참고용
+  - 당시 명칭: Peloton Merge: 그랜드 투어 월드
+  - 글로벌 브랜드 마케팅, 매치3+머지, O2O 아이디어의 변경 이력을 보존합니다.
+
+## 현재 기준 문서
+
+- [게임 콘셉트](../game-design/GAME_CONCEPT.md)
+- [MVP 범위](../game-design/MVP.md)
+
+현재 프로젝트명은 **Dream Bike Garage**, 한글 제목은 **오늘부터 자전거
+부자**입니다. 기획 판단이 충돌할 경우 `docs/game-design`의 최신 문서를
+우선합니다.
