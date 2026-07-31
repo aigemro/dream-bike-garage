@@ -53,6 +53,12 @@ TypeScript · Vite · Phaser · Vitest · GitHub Actions · GitHub Pages
 - `chore/*`: 환경과 도구
 - Issue → Branch → Pull Request → Review → Merge 순서로 작업합니다.
 
-설계자는 `docs/game-design`, `src/data`, `prompts`를 중심으로 작업하고 개발자는 `src`, `tests`, `.github/workflows`, `docs/development`를 관리합니다.
+### 역할 구분
+
+- **기획자**: 게임 콘셉트, 사용자 경험, 핵심 게임 루프, 콘텐츠, 밸런스 방향과 화면 요구사항을 정의합니다. 기획 문서를 작성하고 구현 결과가 기획 의도와 일치하는지 검토합니다.
+- **설계·개발자**: 기획 내용을 시스템·화면·데이터 구조로 구체화하고, 기술 설계, 구현, 테스트, 배포를 담당합니다. 개발 과정에서 필요한 추가 결정 사항과 제약을 기획자에게 공유합니다.
+- **공통**: GitHub Issue 우선순위 협의, 문서와 화면 리뷰, 주요 의사결정 기록을 함께 진행합니다.
+
+기획 문서는 `docs/game-design`을 중심으로 관리하며, 설계·개발 산출물은 `src`, `src/data`, `tests`, `.github/workflows`, `docs/development`, `prompts`를 중심으로 관리합니다.
 
 자세한 내용은 [MVP 범위](docs/game-design/MVP.md), [아키텍처](docs/development/ARCHITECTURE.md), [협업 흐름](docs/development/WORKFLOW.md)을 참고하세요.
