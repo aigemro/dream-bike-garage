@@ -62,6 +62,7 @@ TypeScript · Vite · Phaser · Vitest · GitHub Actions · GitHub Pages
 - Issue → Branch → Pull Request → Review → Merge 순서로 작업합니다.
 
 기존 **Peloton Merge: Grand Tour World** 콘셉트는 Deprecated 상태이며, 신규 기획과 구현은 **Dream Bike Garage: 오늘부터 자전거 부자**를 기준으로 합니다.
+
 ### 역할 구분
 
 - **기획자**: 게임 콘셉트, 사용자 경험, 핵심 게임 루프, 콘텐츠, 밸런스 방향과 화면 요구사항을 정의합니다. 기획 문서를 작성하고 구현 결과가 기획 의도와 일치하는지 검토합니다.
@@ -71,3 +72,7 @@ TypeScript · Vite · Phaser · Vitest · GitHub Actions · GitHub Pages
 기획 문서는 `docs/game-design`을 중심으로 관리하며, 설계·개발 산출물은 `src`, `src/data`, `tests`, `.github/workflows`, `docs/development`, `prompts`를 중심으로 관리합니다.
 
 자세한 내용은 [MVP 범위](docs/game-design/MVP.md), [아키텍처](docs/development/ARCHITECTURE.md), [협업 흐름](docs/development/WORKFLOW.md)을 참고하세요.
+
+## 디자인·사운드 운영
+
+디자인과 사운드는 Lab에서 여러 방안을 비교한 뒤, 채택된 최종 에셋과 적용 코드만 메인 저장소에서 관리합니다. 원본 제작 파일, 라이선스, 별도 에셋 저장소 분리 기준은 [디자인·사운드 에셋 운영 규칙](docs/development/ASSET_WORKFLOW.md)을 참고하세요.
