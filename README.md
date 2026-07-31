@@ -1,28 +1,36 @@
-# Peloton Merge: Grand Tour World
+# Dream Bike Garage
 
-글로벌 자전거 브랜드와 세계 코스를 기반으로 한 Merge 게임 프로젝트입니다.
+> 오늘부터 자전거 부자
+
+**드림 바이크를 갖기 위해 자전거샵에서 일하는 캐주얼 머지 게임**입니다.
+
+플레이어는 자전거를 좋아하지만 원하는 자전거를 살 돈이 없습니다. 자전거샵에서 아르바이트를 시작해 고객 주문에 맞는 부품을 만들고, 머지로 필요한 부품을 완성한 뒤 자전거를 조립해 전달합니다. 주문을 완료해 받은 급여는 플레이어 자신의 드림 바이크를 성장시키는 데 사용합니다.
+
+## 핵심 게임 루프
+
+고객 주문 → 부품 생성 → 머지 → 자전거 조립 → 주문 완료 → 급여 획득 → 드림 바이크 성장 → 새로운 주문
+
+## 핵심 시스템
+
+- **머지**: 같은 부품을 합쳐 주문에 필요한 상위 부품을 만듭니다.
+- **주문 제작**: 고객이 요청한 자전거와 필요한 부품을 확인하고 제한 조건 안에서 완성합니다.
+- **자전거 조립**: 준비된 부품을 조합해 고객의 자전거를 완성합니다.
+- **브랜드 컬렉션**: 다양한 자전거와 브랜드를 발견하고 수집합니다.
+- **드림 바이크 성장**: 급여를 투자해 플레이어의 목표 자전거를 단계적으로 완성합니다.
 
 ## MVP
 
-Workshop에서 부품을 생성하고 같은 부품을 합쳐 완성차를 만든 뒤, 주문을 완료하고 Garage 컬렉션을 확장합니다.
+MVP는 다음 다섯 시스템의 핵심 경험을 검증합니다.
 
-- 7×9 Merge Board
-- Workshop 1개
-- 부품 3종: 프레임, 휠, 구동계
-- 완성차 3단계: Entry, Carbon, Flagship
-- 주문 3개와 Garage 20칸
-- MVP 제외: Match-3, 스태미너, 광고, 과금
+- 머지
+- 주문
+- 자전거 조립
+- 컬렉션
+- 드림 바이크 성장
 
-### 플레이 방법
+레이스 시스템은 MVP 범위에서 제외합니다.
 
-1. `WORKSHOP`을 눌러 Frame → Wheel → Drive 순서로 T1 부품을 생산합니다.
-2. 같은 종류·티어의 아이템을 서로 드래그하면 상위 티어 1개로 합쳐집니다.
-3. T3 Frame·Wheel·Drive를 하나씩 만든 뒤 `BUILD BIKE`로 Entry Bike를 조립합니다.
-4. 같은 Bike 두 대를 합쳐 Carbon, 다시 두 대를 합쳐 Flagship으로 진화시킵니다.
-5. 현재 주문과 같은 티어의 Bike가 있으면 `DELIVER`로 납품합니다.
-6. Entry·Carbon·Flagship 주문을 모두 완료하면 MVP 핵심 루프가 끝납니다.
-
-우측 아래 `RESET`으로 언제든 새 게임을 시작할 수 있습니다.
+자세한 내용은 [게임 콘셉트 문서](docs/planning/GAME_CONCEPT.md)를 참고하세요.
 
 ## 시작하기
 
@@ -42,7 +50,7 @@ npm run build
 
 TypeScript · Vite · Phaser · Vitest · GitHub Actions · GitHub Pages
 
-웹 MVP 검증 후 모바일 출시는 Capacitor 적용을 검토합니다.
+웹 MVP 검증 후 모바일 출시를 위한 Capacitor 적용을 검토합니다.
 
 ## 협업
 
@@ -53,6 +61,4 @@ TypeScript · Vite · Phaser · Vitest · GitHub Actions · GitHub Pages
 - `chore/*`: 환경과 도구
 - Issue → Branch → Pull Request → Review → Merge 순서로 작업합니다.
 
-설계자는 `docs/game-design`, `src/data`, `prompts`를 중심으로 작업하고 개발자는 `src`, `tests`, `.github/workflows`, `docs/development`를 관리합니다.
-
-자세한 내용은 [MVP 범위](docs/game-design/MVP.md), [아키텍처](docs/development/ARCHITECTURE.md), [협업 흐름](docs/development/WORKFLOW.md)을 참고하세요.
+기존 **Peloton Merge: Grand Tour World** 콘셉트는 Deprecated 상태이며, 신규 기획과 구현은 **Dream Bike Garage: 오늘부터 자전거 부자**를 기준으로 합니다.
