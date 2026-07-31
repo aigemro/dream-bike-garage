@@ -53,7 +53,7 @@ const BIKE_TIERS: Record<ItemLevel, string> = {
 export class MergeBoardScene extends Phaser.Scene {
   private state: GameState = createInitialState();
   private dynamicObjects: Phaser.GameObjects.GameObject[] = [];
-  private status = 'Workshop을 눌러 첫 부품을 생산하세요.';
+  private status = 'ORDER PARTS를 눌러 첫 부품을 온라인 주문하세요.';
 
   constructor() {
     super('merge-board');
@@ -65,7 +65,7 @@ export class MergeBoardScene extends Phaser.Scene {
   }
 
   private drawChrome(): void {
-    this.add.text(24, 18, 'PELOTON MERGE', {
+    this.add.text(24, 18, 'DREAM BIKE GARAGE', {
       color: '#f2c14e',
       fontFamily: 'system-ui, sans-serif',
       fontSize: '11px',
@@ -73,14 +73,14 @@ export class MergeBoardScene extends Phaser.Scene {
       letterSpacing: 3,
     });
 
-    this.add.text(24, 38, 'Grand Tour Workshop', {
+    this.add.text(24, 38, '오늘부터 자전거 부자', {
       color: '#f7f3e8',
       fontFamily: 'system-ui, sans-serif',
       fontSize: '22px',
       fontStyle: 'bold',
     });
 
-    this.add.text(24, 70, '같은 아이템을 드래그해 합치고 주문 자전거를 완성하세요.', {
+    this.add.text(24, 70, '부품을 주문하고 머지해 고객의 자전거를 완성하세요.', {
       color: '#aebec7',
       fontFamily: 'system-ui, sans-serif',
       fontSize: '11px',
@@ -127,11 +127,11 @@ export class MergeBoardScene extends Phaser.Scene {
   }
 
   private drawActions(): void {
-    this.makeButton(24, 640, 106, 44, 'WORKSHOP', () => {
+    this.makeButton(24, 640, 106, 44, 'ORDER PARTS', () => {
       const next = producePart(this.state);
       this.status = next === this.state
         ? '보드가 가득 찼습니다. 아이템을 합쳐 공간을 만드세요.'
-        : '새 부품을 생산했습니다.';
+        : '온라인으로 새 부품을 주문했습니다.';
       this.state = next;
       this.renderState();
     }, true);
