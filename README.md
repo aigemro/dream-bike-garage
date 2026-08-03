@@ -32,6 +32,10 @@ MVP는 다음 다섯 시스템의 핵심 경험을 검증합니다.
 
 자세한 내용은 [게임 콘셉트 문서](docs/planning/GAME_CONCEPT.md)를 참고하세요.
 
+## 프로젝트 진행 기록
+
+[Notion 프로젝트 대시보드](https://held-spaghetti-47e.notion.site/Dream-Bike-Garage-3b1ec666c8bb8051a5b9edaf4129a4b3)에서 ChatGPT와 논의한 질문, 결정된 설계·개발 방향, Codex/Work 요청, GitHub 반영 결과와 변경 이력을 한눈에 확인할 수 있습니다.
+
 ## 시작하기
 
 ```bash
