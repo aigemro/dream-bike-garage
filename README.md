@@ -75,7 +75,7 @@ TypeScript · Vite · Phaser · Vitest · GitHub Actions · GitHub Pages
 
 기획 문서는 `docs/game-design`을 중심으로 관리하며, 설계·개발 산출물은 `src`, `src/data`, `tests`, `.github/workflows`, `docs/development`, `prompts`를 중심으로 관리합니다.
 
-자세한 내용은 [MVP 범위](docs/game-design/MVP.md), [아키텍처](docs/development/ARCHITECTURE.md), [협업 흐름](docs/development/WORKFLOW.md)을 참고하세요.
+자세한 내용은 [프로젝트 역할과 운영 경계](docs/development/PROJECT_BOUNDARY.md), [MVP 범위](docs/game-design/MVP.md), [아키텍처](docs/development/ARCHITECTURE.md), [협업 흐름](docs/development/WORKFLOW.md)을 참고하세요.
 
 ## 디자인·사운드 운영
 
