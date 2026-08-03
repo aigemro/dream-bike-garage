@@ -32,9 +32,12 @@ MVP는 다음 다섯 시스템의 핵심 경험을 검증합니다.
 
 자세한 내용은 [게임 콘셉트 문서](docs/planning/GAME_CONCEPT.md)를 참고하세요.
 
-## 프로젝트 진행 기록
-
-프로젝트의 진행 과정과 상세 기록은 [Notion 문서](https://held-spaghetti-47e.notion.site/Dream-Bike-Garage-3b1ec666c8bb8051a5b9edaf4129a4b3)에서 관리합니다.
+> [!IMPORTANT]
+> ## 📘 프로젝트 진행 대시보드
+>
+> **기획자 임성민 위원님의 PPT 제안과 설계자·개발자 김태훈 프로의 ChatGPT·Codex/Work 작업이 어떻게 결론과 GitHub 결과물로 이어졌는지 기록합니다.**
+>
+> 설계·개발 방향 변경, 날짜별 진행 과정, 현재 상태와 최종 결과물은 **[Notion 프로젝트 진행 대시보드에서 확인하세요 →](https://held-spaghetti-47e.notion.site/Dream-Bike-Garage-3b1ec666c8bb8051a5b9edaf4129a4b3)**
 
 ## 시작하기
 
