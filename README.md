@@ -30,7 +30,7 @@ MVP는 다음 다섯 시스템의 핵심 경험을 검증합니다.
 
 레이스 시스템은 MVP 범위에서 제외합니다.
 
-자세한 내용은 [게임 콘셉트 문서](docs/planning/GAME_CONCEPT.md)를 참고하세요.
+자세한 내용은 [게임 콘셉트 문서](docs/planning/GAME_CONCEPT.md), [MVP 범위](docs/game-design/MVP.md), [2026년 9월 MVP·앱인토스 출시 계획](docs/development/MVP_RELEASE_PLAN_2026_09.md)을 참고하세요.
 
 > [!IMPORTANT]
 > ## 📘 프로젝트 진행 대시보드
