@@ -30,7 +30,20 @@ MVP는 다음 다섯 시스템의 핵심 경험을 검증합니다.
 
 레이스 시스템은 MVP 범위에서 제외합니다.
 
-자세한 내용은 [게임 콘셉트 문서](docs/planning/GAME_CONCEPT.md), [MVP 범위](docs/game-design/MVP.md), [2026년 9월 MVP·앱인토스 출시 계획](docs/development/MVP_RELEASE_PLAN_2026_09.md)을 참고하세요.
+자세한 내용은 [게임 콘셉트 문서](docs/planning/GAME_CONCEPT.md), [MVP 범위](docs/game-design/MVP.md), [2026년 11월 출시 계획](docs/development/RELEASE_PLAN_2026_11.md)을 참고하세요.
+
+## 개발 일정
+
+| 기간 | 단계 | 완료 상태 |
+|---|---|---|
+| 2026년 8월 | 기획 확정 | 만들 것과 만들지 않을 것이 문서로 고정 |
+| 2026년 9월 | MVP 개발 완료 | 핵심 루프가 웹에서 처음부터 끝까지 동작 |
+| 2026년 10월 | 품질 향상 | 앱인토스 실기기에서 안정적으로 플레이 가능 |
+| 2026년 11월 | 출시 | 앱인토스 심사 통과 후 정식 출시 |
+
+11월 안의 **구체적인 출시일은 협의 중**이며, 계획 문서의 11월 날짜는 잠정안입니다. 10월 29일 회의에서 확정합니다.
+
+매주 목요일 진행 공유 회의를 축으로 운영합니다. 상세 일정과 마일스톤은 [2026년 11월 출시 계획](docs/development/RELEASE_PLAN_2026_11.md), 회의 운영 방식은 [주간 진행 공유 회의 운영](docs/development/WEEKLY_SYNC.md)을 참고하세요.
 
 > [!IMPORTANT]
 > ## 📘 프로젝트 진행 대시보드
