@@ -87,6 +87,8 @@ interface GamePlatform {
 
 ### 2단계 — 모바일 WebView 대응
 
+> 화면 셸 구성(웹 쇼케이스/앱 풀스크린 모드), 기준 해상도, Safe Area 처리의 상세 기준은 [SCREEN_LAYOUT_STRATEGY.md](SCREEN_LAYOUT_STRATEGY.md)를 따른다.
+
 - 세로 화면을 기본으로 설계
 - `safe-area-inset-top/bottom`을 반영해 노치와 홈바 영역 보호
 - 마우스 이벤트보다 Pointer Event 또는 터치 입력 우선 사용
