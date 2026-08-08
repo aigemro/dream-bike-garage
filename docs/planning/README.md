@@ -13,6 +13,9 @@
 
 ## 문서 목록
 
+- [레퍼런스 게임 분석과 MVP 적용 제안](./REFERENCE_GAMES.md)
+  - 상태: 검토용
+  - 주문 기반 머지-2 장르(Travel Town, Love & Pies 등) 벤치마크와 시스템별 MVP 적용 제안을 정리합니다.
 - [초기 게임 마케팅 기획안](./game-marketing-plan.md)
   - 상태: Deprecated / 참고용
   - 당시 명칭: Peloton Merge: 그랜드 투어 월드
