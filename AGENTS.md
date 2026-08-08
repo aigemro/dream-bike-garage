@@ -24,6 +24,7 @@
 - 출시 일정: `docs/development/RELEASE_PLAN_2026_11.md` (2026년 11월 앱인토스 출시 목표)
 - 주간 회의 운영: `docs/development/WEEKLY_SYNC.md` (매주 목요일 진행 공유)
 - 아키텍처: `docs/development/ARCHITECTURE.md`
+- 웹·앱 화면 구조 전략: `docs/development/SCREEN_LAYOUT_STRATEGY.md` (앱인토스 앱 화면 대응, Lab 트랙 공통 화면 규격)
 - 협업 흐름: `docs/development/WORKFLOW.md`
 - AI 도구 병행 운영(Claude/Codex): `docs/development/AI_ASSISTANT_WORKFLOW.md`
 - Lab 저장소와의 역할 경계: `docs/development/PROJECT_BOUNDARY.md`
