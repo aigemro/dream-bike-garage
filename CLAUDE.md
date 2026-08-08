@@ -32,6 +32,8 @@
 | 게임 규칙·시스템 설계 | [docs/game-design/MERGE_GAME_SYSTEM_DESIGN.md](docs/game-design/MERGE_GAME_SYSTEM_DESIGN.md) |
 | MVP 범위 | [docs/game-design/MVP.md](docs/game-design/MVP.md) |
 | 게임 콘셉트 | [docs/game-design/GAME_CONCEPT.md](docs/game-design/GAME_CONCEPT.md) |
+| 메인 화면 구조 초안 | [docs/game-design/SCREEN_STRUCTURE.md](docs/game-design/SCREEN_STRUCTURE.md) |
+| 주간 회의 기록 | [docs/meetings/](docs/meetings/) |
 | 출시 일정·마일스톤 | [docs/development/RELEASE_PLAN_2026_11.md](docs/development/RELEASE_PLAN_2026_11.md) |
 | 주간 목요일 회의 운영 | [docs/development/WEEKLY_SYNC.md](docs/development/WEEKLY_SYNC.md) |
 | 코드 구조 원칙 | [docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md) |
