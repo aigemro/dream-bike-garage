@@ -4,7 +4,7 @@
 
 ## 프로젝트 한 줄 요약
 
-**Dream Bike Garage (오늘부터 자전거 부자)** — Phaser 3 + TypeScript + Vite 기반 캐주얼 머지 웹게임. 2026년 9월 앱인토스(Apps in Toss) MVP 출시가 목표입니다.
+**Dream Bike Garage (오늘부터 자전거 부자)** — Phaser 3 + TypeScript + Vite 기반 캐주얼 머지 웹게임. 2026년 11월 앱인토스(Apps in Toss) 출시가 목표입니다(8월 기획 확정 → 9월 MVP 개발 완료 → 10월 품질 향상 → 11월 출시).
 
 ## 저장소 체제
 
@@ -32,7 +32,8 @@
 | 게임 규칙·시스템 설계 | [docs/game-design/MERGE_GAME_SYSTEM_DESIGN.md](docs/game-design/MERGE_GAME_SYSTEM_DESIGN.md) |
 | MVP 범위 | [docs/game-design/MVP.md](docs/game-design/MVP.md) |
 | 게임 콘셉트 | [docs/game-design/GAME_CONCEPT.md](docs/game-design/GAME_CONCEPT.md) |
-| 출시 일정·마일스톤 | [docs/development/MVP_RELEASE_PLAN_2026_09.md](docs/development/MVP_RELEASE_PLAN_2026_09.md) |
+| 출시 일정·마일스톤 | [docs/development/RELEASE_PLAN_2026_11.md](docs/development/RELEASE_PLAN_2026_11.md) |
+| 주간 목요일 회의 운영 | [docs/development/WEEKLY_SYNC.md](docs/development/WEEKLY_SYNC.md) |
 | 코드 구조 원칙 | [docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md) |
 | 앱인토스 출시 가이드 | [docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md](docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md) |
 | 에셋(디자인·사운드) 운영 | [docs/development/ASSET_WORKFLOW.md](docs/development/ASSET_WORKFLOW.md) |

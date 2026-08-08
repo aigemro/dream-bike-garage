@@ -21,7 +21,8 @@
 
 - 게임 규칙·시스템: `docs/game-design/MERGE_GAME_SYSTEM_DESIGN.md`
 - MVP 범위: `docs/game-design/MVP.md`
-- 출시 일정: `docs/development/MVP_RELEASE_PLAN_2026_09.md` (2026년 9월 앱인토스 출시 목표)
+- 출시 일정: `docs/development/RELEASE_PLAN_2026_11.md` (2026년 11월 앱인토스 출시 목표)
+- 주간 회의 운영: `docs/development/WEEKLY_SYNC.md` (매주 목요일 진행 공유)
 - 아키텍처: `docs/development/ARCHITECTURE.md`
 - 협업 흐름: `docs/development/WORKFLOW.md`
 - Lab 저장소와의 역할 경계: `docs/development/PROJECT_BOUNDARY.md`
