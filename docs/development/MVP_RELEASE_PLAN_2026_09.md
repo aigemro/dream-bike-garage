@@ -232,7 +232,7 @@
 
 ## 관련 문서
 
-- [게임 콘셉트](../planning/GAME_CONCEPT.md)
+- [게임 콘셉트](../game-design/GAME_CONCEPT.md)
 - [MVP 범위](../game-design/MVP.md)
 - [메인 프로젝트와 Lab 운영 경계](PROJECT_BOUNDARY.md)
 - [협업 흐름](WORKFLOW.md)
