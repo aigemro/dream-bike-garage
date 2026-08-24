@@ -23,75 +23,49 @@ body {
 }
 
 #app {
-  --page-inline-padding: 16px;
-  --page-block-padding: clamp(12px, 3vh, 32px);
-  --content-gap: clamp(8px, 2vh, 20px);
-  --header-height: 96px;
-
   width: 100%;
   height: 100vh;
   height: 100dvh;
-  margin: 0 auto;
-  padding: var(--page-block-padding) var(--page-inline-padding);
-  display: grid;
-  grid-template-rows: var(--header-height) minmax(0, 1fr);
-  justify-items: center;
-  gap: var(--content-gap);
+  padding: 0;
   overflow: hidden;
 }
-
-.game-header {
-  width: min(100%, 760px);
-  height: var(--header-height);
-  overflow: hidden;
-}
-
-.game-header h1 { margin: 4px 0 8px; font-size: clamp(2rem, 8vw, 3.5rem); }
-.game-header p { margin: 0; color: #aebec7; }
-.game-header .eyebrow { color: #f2c14e; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.18em; }
 
 #game-container {
-  height: min(
-    810px,
-    calc(
-      100vh - (var(--page-block-padding) * 2) - var(--header-height) - var(--content-gap)
-    )
-  );
-  height: min(
-    810px,
-    calc(
-      100dvh - (var(--page-block-padding) * 2) - var(--header-height) - var(--content-gap)
-    )
-  );
-  width: auto;
-  max-width: 100%;
-  aspect-ratio: 390 / 810;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  border: 1px solid #29434f;
-  border-radius: clamp(12px, 3vw, 20px);
-  background: #101820;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.36);
+  background: #c78452;
 }
 
-#game-container canvas {
+.release-integration-shell,
+.release-stage { width: 100%; height: 100%; min-height: 0; overflow: hidden; }
+.release-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #c78452 url('../assets/garage-bikes.svg') center / cover no-repeat;
+}
+.release-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(87,48,68,.2), transparent 28%, transparent 72%, rgba(87,48,68,.2));
+}
+.release-stage canvas {
+  position: relative;
+  z-index: 1;
   display: block;
-  width: 100% !important;
+  width: auto !important;
   height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 390 / 810;
+  box-shadow: 0 0 0 6px rgba(87,48,68,.22), 0 16px 32px rgba(59,37,49,.24);
 }
 
-@media (max-height: 700px) {
-  #app {
-    --page-block-padding: 10px;
-    --content-gap: 8px;
-    --header-height: 56px;
-  }
-
-  .game-header h1 {
-    margin: 2px 0 0;
-    font-size: clamp(1.5rem, 5vh, 2rem);
-  }
-
-  .game-header > p:not(.eyebrow) {
-    display: none;
-  }
+@media (max-aspect-ratio: 390 / 810) {
+  .release-stage { background-image: none; }
+  .release-stage canvas { width: 100% !important; height: auto !important; box-shadow: none; }
 }

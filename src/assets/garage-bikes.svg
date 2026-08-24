@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 810" role="img" aria-labelledby="title desc">
+  <title id="title">따뜻한 픽셀 차고와 자전거</title>
+  <desc id="desc">수직형 게임 화면 양옆을 채우는 자전거와 정비 도구 장식</desc>
+  <defs>
+    <pattern id="brick" width="48" height="28" patternUnits="userSpaceOnUse">
+      <rect width="48" height="28" fill="#c98552"/>
+      <path d="M0 27h48M24 0v13M0 14h48M12 14v13" stroke="#b36d47" stroke-width="3" opacity=".45"/>
+    </pattern>
+  </defs>
+  <rect width="900" height="810" fill="url(#brick)"/>
+  <path d="M0 620h900v190H0z" fill="#8d5139"/>
+  <path d="M0 620h900" stroke="#543044" stroke-width="10"/>
+  <g stroke="#563040" stroke-width="13" fill="none" stroke-linecap="square" stroke-linejoin="bevel">
+    <circle cx="128" cy="575" r="72" fill="#efd18c"/><circle cx="352" cy="575" r="72" fill="#efd18c"/>
+    <path d="M128 575l91-4 55-108 78 112-133-4 58-108M219 571l-44-108h64M352 575l-31-131h52"/>
+    <circle cx="548" cy="575" r="72" fill="#efd18c"/><circle cx="772" cy="575" r="72" fill="#efd18c"/>
+    <path d="M548 575l91-4 55-108 78 112-133-4 58-108M639 571l-44-108h64M772 575l-31-131h52"/>
+  </g>
+  <g fill="#f2b54a" stroke="#563040" stroke-width="8">
+    <rect x="70" y="110" width="250" height="170"/><rect x="580" y="110" width="250" height="170"/>
+    <path d="M105 145h180v98H105zM615 145h180v98H615z" fill="#f7dca0"/>
+  </g>
+  <g stroke="#563040" stroke-width="10" fill="none"><path d="M120 170h150M630 170h150M165 150v76M680 150v76"/></g>
+  <g fill="#5d7654" stroke="#563040" stroke-width="8"><path d="M22 614v-145h70v145z"/><path d="M808 614v-145h70v145z"/></g>
+  <g fill="#f2b54a" stroke="#563040" stroke-width="8"><rect x="26" y="420" width="62" height="52"/><rect x="812" y="420" width="62" height="52"/></g>
+</svg>

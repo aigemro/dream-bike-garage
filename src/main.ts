@@ -1,5 +1,4 @@
-import Phaser from 'phaser';
-import { gameConfig } from './game/config';
+import { startMvpReleaseIntegration } from './game/release/mvp-release-integration';
 import './ui/styles.css';
 
-new Phaser.Game(gameConfig);
+startMvpReleaseIntegration('game-container');
