@@ -3,6 +3,7 @@ import {
   drawPixelBike, drawPixelPartIcon, makeWarmColorway,
   bikePartAnchorOffset, WARM_PART_COLORS,
 } from './bike-pixel-sprite';
+import { cancelPartSelection } from './part-selection';
 
 export type MergePrototypeMode = 'free' | 'order' | 'guided' | 'integrated';
 export type MergePrototypeTheme = 'lab' | 'warm-pixel';
@@ -78,6 +79,8 @@ class MergePrototypeScene extends Phaser.Scene {
   private boardObjects: Phaser.GameObjects.GameObject[] = [];
   private controls: Phaser.GameObjects.GameObject[] = [];
   private selectedPiece?: Piece;
+  private selectionCancelButton?: Phaser.GameObjects.Rectangle;
+  private selectionCancelLabel?: Phaser.GameObjects.Text;
   private selectedGenerator: PartType = 'frame';
   private generatorRotation = 0;
   private generatorPlacementActive = false;
@@ -356,6 +359,8 @@ class MergePrototypeScene extends Phaser.Scene {
     this.pieces.forEach((piece) => piece.item.destroy());
     this.pieces = [];
     this.boardObjects.forEach((object) => object.destroy());
+    this.selectionCancelButton = undefined;
+    this.selectionCancelLabel = undefined;
     this.controls.forEach((object) => this.destroySceneObject(object));
     this.boardObjects = [];
     this.controls = [];
@@ -402,9 +407,33 @@ class MergePrototypeScene extends Phaser.Scene {
   private drawPartControls() {
     if (this.mode === 'integrated') {
       this.drawParcelControls();
-      return;
+    } else {
+      this.drawDesktopPartControls();
     }
-    this.drawDesktopPartControls();
+    this.drawSelectionCancelControl();
+  }
+
+  private drawSelectionCancelControl() {
+    const x = 1028;
+    const y = 108;
+    this.selectionCancelButton = this.add.rectangle(
+      x,
+      y,
+      140,
+      30,
+      this.warm ? 0x8e5136 : 0x17324a,
+    ).setStrokeStyle(2, this.warm ? 0x3b2531 : 0x55d6be)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(this.warm ? 12 : 2)
+      .on('pointerdown', () => this.cancelSelection());
+    this.selectionCancelLabel = this.add.text(x, y, '× 선택 취소', {
+      fontFamily: this.warm ? '"Arial Rounded MT Bold", "Noto Sans KR", sans-serif' : 'Arial',
+      fontSize: '11px',
+      color: this.warm ? '#fff1c6' : '#dce9f2',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(this.warm ? 13 : 3);
+    this.controls.push(this.selectionCancelButton, this.selectionCancelLabel);
+    this.refreshControls();
   }
 
   private drawDesktopPartControls() {
@@ -432,8 +461,8 @@ class MergePrototypeScene extends Phaser.Scene {
     const modeGuide = this.mode === 'order'
       ? '주문에서 다음으로 필요한 부품이 자동 선택됩니다.\n배치된 부품은 선택·이동·회전·머지할 수 있습니다.'
       : this.mode === 'guided'
-        ? '원하는 부품을 선택하고 같은 버튼을 다시 눌러 회전합니다.\n아래 주문 가이드로 필요한 목표를 확인합니다.'
-        : '부품 버튼을 다시 누르면 90° 회전합니다.\n보드 위에서 배치 모양을 미리 확인하고,\n같은 부품 위에 놓으면 바로 머지됩니다.\n배치된 부품은 선택 후 이동·회전할 수 있습니다.';
+        ? '원하는 부품을 선택하고 같은 버튼을 다시 눌러 회전합니다.\n배치된 부품은 상단 선택 취소 버튼으로 해제할 수 있습니다.'
+        : '부품 버튼을 다시 누르면 90° 회전합니다.\n보드 위에서 배치 모양을 미리 확인하고,\n같은 부품 위에 놓으면 바로 머지됩니다.\n배치·이동 선택은 상단 버튼으로 취소할 수 있습니다.';
     const guide = this.add.text(controlsLeft, controlsTop + 210, modeGuide, { fontFamily: 'Arial', fontSize: '11px', color: '#71899c', lineSpacing: 6, wordWrap: { width: panelWidth - panelPadding * 2 } });
     this.controls.push(guide);
 
@@ -511,7 +540,7 @@ class MergePrototypeScene extends Phaser.Scene {
       this.controls.push(button, name, status, need);
     });
 
-    const guide = this.add.text(controlsLeft, controlsTop + 316, '택배 주문 → 배송 → 상자 개봉 → 보드 배치 순서로\n부품을 수급합니다. 개봉 후 같은 버튼을 다시 누르면\n부품이 90° 회전합니다.', {
+    const guide = this.add.text(controlsLeft, controlsTop + 316, '택배 주문 → 배송 → 상자 개봉 → 보드 배치\n개봉 버튼 재탭: 부품 90° 회전\n상단 선택 취소: 상자를 도착 상태로 보존', {
       fontFamily, fontSize: '10px', color: this.warm ? '#7b5140' : '#71899c', lineSpacing: 5, wordWrap: { width: panelWidth - panelPadding * 2 },
     }).setDepth(this.warm ? 4 : 0);
     this.controls.push(guide);
@@ -575,7 +604,7 @@ class MergePrototypeScene extends Phaser.Scene {
         statusText = `배송 중… ${Math.max(0, (parcel.readyAt - this.time.now) / 1000).toFixed(1)}초`;
         statusColor = this.warm ? '#a16028' : '#ffd37a';
       } else if (placing) {
-        statusText = `배치 중 · ${this.generatorRotation * 90}° · 다시 누르면 회전`;
+        statusText = `배치 중 · ${this.generatorRotation * 90}° · 재탭 회전/상단 취소`;
         statusColor = this.warm ? '#3f7851' : '#9ff3e3';
       } else if (parcel?.state === 'arrived') {
         statusText = '📦 도착 · 탭해서 개봉';
@@ -611,7 +640,7 @@ class MergePrototypeScene extends Phaser.Scene {
         this.generatorPlacementActive = false;
         this.pendingParcel = undefined;
         this.refreshControls();
-        this.refreshUi(`${this.partName(clicked.type)} Lv.${clicked.level} 선택 · 빈 칸으로 이동하거나 같은 부품에 머지하세요.`);
+        this.refreshUi(`${this.partName(clicked.type)} Lv.${clicked.level} 선택 · 빈 칸으로 이동하거나 같은 부품에 머지하세요. 상단 버튼으로 선택을 취소할 수 있습니다.`);
         return;
       }
       if (clicked.id === this.selectedPiece.id) { this.rotateSelected(); return; }
@@ -653,12 +682,13 @@ class MergePrototypeScene extends Phaser.Scene {
     this.pieces.push(piece);
     this.generatorPlacementActive = false;
     this.consumePendingParcel();
+    this.refreshControls();
     const rotationMessage = placementRotation === 0 ? '' : ` · ${placementRotation * 90}° 회전`;
     this.refreshUi(`${this.partName(type)} Lv.1을 ${this.shape(type, placementRotation).length}칸 크기로 배치했습니다${rotationMessage}.`);
   }
 
   private selectGenerator(type: PartType) {
-    const repeated = this.selectedGenerator === type && !this.selectedPiece;
+    const repeated = this.generatorPlacementActive && this.selectedGenerator === type && !this.selectedPiece;
     this.selectedGenerator = type;
     this.selectedPiece = undefined;
     this.generatorPlacementActive = true;
@@ -696,6 +726,27 @@ class MergePrototypeScene extends Phaser.Scene {
   private clearPlacementGhost() {
     this.placementGhost?.destroy(true);
     this.placementGhost = undefined;
+  }
+
+  private cancelSelection() {
+    const selectedName = this.selectedPiece ? this.partName(this.selectedPiece.type) : this.partName(this.selectedGenerator);
+    const result = cancelPartSelection({
+      selectedPiece: this.selectedPiece,
+      generatorPlacementActive: this.generatorPlacementActive,
+      pendingParcel: this.pendingParcel,
+    });
+    if (result.canceled === 'none') return;
+
+    this.selectedPiece = result.selectedPiece;
+    this.generatorPlacementActive = result.generatorPlacementActive;
+    this.pendingParcel = result.pendingParcel;
+    this.clearPlacementGhost();
+    this.refreshControls();
+    this.refreshUi(result.canceled === 'placed-piece'
+      ? `${selectedName} 선택을 취소했습니다. 부품의 위치와 방향은 유지됩니다.`
+      : this.mode === 'integrated'
+        ? `${selectedName} 배치를 취소했습니다. 개봉한 상자는 도착 상태로 보관됩니다.`
+        : `${selectedName} 배치 선택을 취소했습니다.`);
   }
 
   private mergeGeneratedPiece(target: Piece) {
@@ -814,6 +865,9 @@ class MergePrototypeScene extends Phaser.Scene {
       .forEach((preview) => preview.setVisible(preview.getData('previewPart') === this.selectedGenerator && preview.getData('previewRotation') === this.generatorRotation
         && (this.mode !== 'integrated' || this.generatorPlacementActive)));
     this.pieces.forEach((piece) => piece.item.setScale(piece.id === this.selectedPiece?.id ? 1.06 : 1));
+    const canCancel = Boolean(this.selectedPiece || this.generatorPlacementActive);
+    this.selectionCancelButton?.setVisible(canCancel);
+    this.selectionCancelLabel?.setVisible(canCancel);
     if (this.mode === 'integrated') this.refreshParcelDisplays();
   }
 

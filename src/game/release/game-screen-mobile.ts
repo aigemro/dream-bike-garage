@@ -6,6 +6,7 @@ import Phaser from 'phaser';
 import { drawPixelBike, drawPixelPartIcon, makeWarmColorway, bikePartAnchorOffset, WARM_PART_COLORS, type BikeCategory } from './bike-pixel-sprite';
 import { PARTS, ORDERS, type PartType, type Goal } from './merge-prototype';
 import { findFirstAvailablePlacement } from './auto-placement';
+import { cancelPartSelection } from './part-selection';
 
 type Point = { x: number; y: number };
 type Piece = { id: number; type: PartType; level: number; row: number; column: number; rotation: number; item: Phaser.GameObjects.Container };
@@ -52,6 +53,8 @@ class GameScreenMobileScene extends Phaser.Scene {
   private merges = 0;
   private startedAt = 0;
   private selectedPiece?: Piece;
+  private selectionCancelButton?: Phaser.GameObjects.Rectangle;
+  private selectionCancelLabel?: Phaser.GameObjects.Text;
   private selectedGenerator: PartType = 'frame';
   private generatorRotation = 0;
   private generatorPlacementActive = false;
@@ -172,7 +175,26 @@ class GameScreenMobileScene extends Phaser.Scene {
         zone.on('pointerdown', () => this.handleCell(row, column));
       }
     }
-    this.info = this.add.text(195, this.boardTop + height + 18, '', { fontFamily: FONT, fontSize: '10px', color: '#fff1c6', align: 'center', wordWrap: { width: 366 }, lineSpacing: 3 }).setOrigin(0.5, 0).setDepth(10);
+    this.info = this.add.text(12, this.boardTop + height + 12, '', {
+      fontFamily: FONT,
+      fontSize: '10px',
+      color: '#fff1c6',
+      wordWrap: { width: 270 },
+      lineSpacing: 3,
+    }).setDepth(10);
+    const cancelY = this.boardTop + height + 38;
+    this.selectionCancelButton = this.add.rectangle(334, cancelY, 104, 44, BROWN)
+      .setStrokeStyle(2, CREAM)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(10)
+      .on('pointerdown', () => this.cancelSelection());
+    this.selectionCancelLabel = this.add.text(334, cancelY, '× 선택 취소', {
+      fontFamily: FONT,
+      fontSize: '10px',
+      color: '#fff1c6',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(11);
+    this.refreshControls();
   }
 
   private drawParcelShelf() {
@@ -272,7 +294,7 @@ class GameScreenMobileScene extends Phaser.Scene {
         statusText = `배송 중… ${Math.max(0, (parcel.readyAt - this.time.now) / 1000).toFixed(1)}초`;
         statusColor = '#a16028';
       } else if (placing) {
-        statusText = `배치 중 · ${this.generatorRotation * 90}° · 다시 누르면 회전`;
+        statusText = `배치 중 · ${this.generatorRotation * 90}° · 재탭 회전`;
         statusColor = '#3f7851';
       } else if (parcel?.state === 'arrived') {
         statusText = '📦 도착 · 탭해서 개봉';
@@ -313,7 +335,7 @@ class GameScreenMobileScene extends Phaser.Scene {
         this.generatorPlacementActive = false;
         this.pendingParcel = undefined;
         this.refreshControls();
-        this.refreshUi(`${this.partName(clicked.type)} Lv.${clicked.level} 선택 · 빈 칸으로 이동하거나 같은 부품에 머지하세요. 같은 부품을 다시 누르면 회전합니다.`);
+        this.refreshUi(`${this.partName(clicked.type)} Lv.${clicked.level} 선택 · 재탭 회전, 아래 버튼으로 선택 취소`);
         return;
       }
       if (clicked.id === this.selectedPiece.id) { this.rotateSelected(); return; }
@@ -347,6 +369,7 @@ class GameScreenMobileScene extends Phaser.Scene {
     this.pieces.push(this.makePiece(this.selectedGenerator, row, column, this.generatorRotation, 1));
     this.generatorPlacementActive = false;
     this.consumePendingParcel();
+    this.refreshControls();
     this.refreshUi(`${this.partName(this.selectedGenerator)} Lv.1을 배치했습니다.`);
   }
 
@@ -393,6 +416,7 @@ class GameScreenMobileScene extends Phaser.Scene {
       this.pendingParcel = undefined;
       this.generatorPlacementActive = false;
     }
+    this.refreshControls();
     return true;
   }
 
@@ -439,6 +463,26 @@ class GameScreenMobileScene extends Phaser.Scene {
   private clearPlacementGhost() {
     this.placementGhost?.destroy(true);
     this.placementGhost = undefined;
+  }
+
+  private cancelSelection() {
+    const selectedName = this.selectedPiece ? this.partName(this.selectedPiece.type) : this.partName(this.selectedGenerator);
+    const result = cancelPartSelection({
+      selectedPiece: this.selectedPiece,
+      generatorPlacementActive: this.generatorPlacementActive,
+      pendingParcel: this.pendingParcel,
+    });
+    if (result.canceled === 'none') return;
+
+    this.hooks.onSfx?.('tap');
+    this.selectedPiece = result.selectedPiece;
+    this.generatorPlacementActive = result.generatorPlacementActive;
+    this.pendingParcel = result.pendingParcel;
+    this.clearPlacementGhost();
+    this.refreshControls();
+    this.refreshUi(result.canceled === 'placed-piece'
+      ? `${selectedName} 선택을 취소했습니다. 위치와 방향은 유지됩니다.`
+      : `${selectedName} 배치를 취소했습니다. 개봉한 상자는 도착 상태로 보관됩니다.`);
   }
 
   private rotateSelected() {
@@ -586,6 +630,9 @@ class GameScreenMobileScene extends Phaser.Scene {
 
   private refreshControls() {
     this.pieces.forEach((piece) => piece.item.setScale(piece.id === this.selectedPiece?.id ? 1.06 : 1));
+    const canCancel = Boolean(this.selectedPiece || this.generatorPlacementActive);
+    this.selectionCancelButton?.setVisible(canCancel);
+    this.selectionCancelLabel?.setVisible(canCancel);
     this.refreshParcelDisplays();
   }
 
