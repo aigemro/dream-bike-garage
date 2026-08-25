@@ -5,6 +5,7 @@
 import Phaser from 'phaser';
 import { drawPixelBike, drawPixelPartIcon, makeWarmColorway, bikePartAnchorOffset, WARM_PART_COLORS, type BikeCategory } from './bike-pixel-sprite';
 import { PARTS, ORDERS, type PartType, type Goal } from './merge-prototype';
+import { findFirstAvailablePlacement } from './auto-placement';
 
 type Point = { x: number; y: number };
 type Piece = { id: number; type: PartType; level: number; row: number; column: number; rotation: number; item: Phaser.GameObjects.Container };
@@ -29,6 +30,8 @@ const BIKE_CELL = 2;
 
 export type GameScreenMobileHooks = {
   orderIndex?: number;
+  autoPlacement?: boolean;
+  onAutoPlacementChange?: (enabled: boolean) => void;
   onOrderComplete?: (orderIndex: number) => void;
   onSfx?: (event: 'tap' | 'parcel' | 'merge' | 'install' | 'complete' | 'error') => void;
 };
@@ -52,8 +55,10 @@ class GameScreenMobileScene extends Phaser.Scene {
   private selectedGenerator: PartType = 'frame';
   private generatorRotation = 0;
   private generatorPlacementActive = false;
+  private placementGhost?: Phaser.GameObjects.Container;
   private pendingParcel?: PartType;
   private parcels = new Map<PartType, ParcelState>();
+  private autoPlacementEnabled = false;
   private installQueue: Array<{ goal: Goal; from: Point; level: number }> = [];
   private installingPart = false;
   private orderCompleting = false;
@@ -64,11 +69,15 @@ class GameScreenMobileScene extends Phaser.Scene {
   private orderBike?: Phaser.GameObjects.Graphics;
   private goalChips = new Map<PartType, { panel: Phaser.GameObjects.Rectangle; status: Phaser.GameObjects.Text }>();
   private parcelDisplays = new Map<PartType, { button: Phaser.GameObjects.Rectangle; status: Phaser.GameObjects.Text; need: Phaser.GameObjects.Text }>();
+  private autoPlacementToggle?: Phaser.GameObjects.Rectangle;
+  private autoPlacementCheck?: Phaser.GameObjects.Text;
+  private autoPlacementState?: Phaser.GameObjects.Text;
 
   create() {
     this.cameras.main.setBackgroundColor('#c78452');
     this.startedAt = this.time.now;
     this.orderIndex = Math.abs(this.hooks.orderIndex ?? 0) % ORDERS.length;
+    this.autoPlacementEnabled = Boolean(this.hooks.autoPlacement);
     this.goals = ORDERS[this.orderIndex].map((goal) => ({ ...goal }));
     this.cellSize = Math.floor(Math.min(368 / this.columns, 364 / this.rows));
     this.boardLeft = Math.floor((390 - this.columns * this.cellSize) / 2);
@@ -158,6 +167,8 @@ class GameScreenMobileScene extends Phaser.Scene {
         const { x, y } = this.cellCenter(row, column);
         const zone = this.add.rectangle(x, y, this.cellSize - this.gap, this.cellSize - this.gap, 0xffe6a8)
           .setStrokeStyle(2, 0x9c5b3c).setInteractive({ useHandCursor: true }).setDepth(1);
+        zone.on('pointerover', () => this.showPlacementGhost(row, column));
+        zone.on('pointerout', () => this.clearPlacementGhost());
         zone.on('pointerdown', () => this.handleCell(row, column));
       }
     }
@@ -169,6 +180,17 @@ class GameScreenMobileScene extends Phaser.Scene {
     this.add.rectangle(195, shelfTop + 66, 374, 136, CREAM).setStrokeStyle(4, BORDER).setDepth(2);
     this.add.rectangle(96, shelfTop, 152, 22, BROWN).setDepth(3);
     this.add.text(28, shelfTop - 7, '택배 선반 · DELIVERY', { fontFamily: FONT, fontSize: '10px', color: '#fff1c6', fontStyle: 'bold' }).setDepth(4);
+
+    this.autoPlacementToggle = this.add.rectangle(282, shelfTop, 200, 22, BROWN)
+      .setStrokeStyle(2, BORDER).setDepth(3);
+    this.add.rectangle(194, shelfTop, 14, 14, CREAM).setStrokeStyle(2, BORDER).setDepth(4);
+    this.autoPlacementCheck = this.add.text(194, shelfTop - 1, '', { fontFamily: FONT, fontSize: '12px', color: '#3f7851', fontStyle: 'bold' }).setOrigin(0.5).setDepth(5);
+    this.add.text(207, shelfTop, '자동 배치', { fontFamily: FONT, fontSize: '10px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0, 0.5).setDepth(4);
+    this.autoPlacementState = this.add.text(374, shelfTop, '', { fontFamily: FONT, fontSize: '9px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(1, 0.5).setDepth(4);
+    this.add.rectangle(282, shelfTop, 200, 32, 0xffffff, 0.001)
+      .setInteractive({ useHandCursor: true }).setDepth(6)
+      .on('pointerdown', () => this.toggleAutoPlacement());
+    this.refreshAutoPlacementToggle();
 
     PARTS.forEach((part, index) => {
       const x = 104 + (index % 2) * 182;
@@ -186,6 +208,7 @@ class GameScreenMobileScene extends Phaser.Scene {
 
   private handleParcelButton(type: PartType) {
     this.hooks.onSfx?.('tap');
+    this.clearPlacementGhost();
     const parcel = this.parcels.get(type) ?? { state: 'idle' as const, readyAt: 0 };
     if (parcel.state === 'delivering') {
       this.refreshUi(`${this.partName(type)} 택배가 배송 중입니다. 도착하면 같은 버튼으로 개봉하세요.`);
@@ -203,7 +226,11 @@ class GameScreenMobileScene extends Phaser.Scene {
       this.generatorPlacementActive = true;
       this.generatorRotation = repeated ? (this.generatorRotation + 1) % 4 : 0;
       this.refreshControls();
-      this.refreshUi(repeated
+      const suggested = this.findFirstPlacement(type);
+      if (suggested) this.showPlacementGhost(suggested.row, suggested.column);
+      this.refreshUi(!suggested
+        ? `${this.partName(type)} 상자를 개봉했지만 현재 배치 가능한 공간이 없습니다. 보드를 정리한 뒤 다시 시도하세요.`
+        : repeated
         ? `${this.partName(type)}을 ${this.generatorRotation * 90}°로 회전했습니다. 보드에서 배치 위치를 선택하세요.`
         : `${this.partName(type)} 상자를 개봉했습니다. 보드에서 Lv.1 부품의 배치 위치를 선택하세요. 같은 Lv.1 부품 위에 놓으면 바로 머지됩니다.`);
       return;
@@ -214,14 +241,21 @@ class GameScreenMobileScene extends Phaser.Scene {
   }
 
   private tickParcels() {
-    let arrivedNow: PartType | undefined;
+    const messages: string[] = [];
     this.parcels.forEach((parcel, type) => {
       if (parcel.state === 'delivering' && this.time.now >= parcel.readyAt) {
         parcel.state = 'arrived';
-        arrivedNow = type;
+        if (this.autoPlacementEnabled && this.tryAutoPlaceParcel(type)) {
+          messages.push(`${this.partName(type)} Lv.1을 빈 공간에 자동 배치했습니다.`);
+          this.hooks.onSfx?.('parcel');
+        } else if (this.autoPlacementEnabled) {
+          messages.push(`${this.partName(type)} 택배가 도착했지만 배치 공간이 없습니다. 보드를 정리한 뒤 직접 개봉하세요.`);
+        } else {
+          messages.push(`${this.partName(type)} 택배가 도착했습니다. 아래 버튼을 눌러 상자를 개봉하세요.`);
+        }
       }
     });
-    if (arrivedNow) this.info.setText(`${this.partName(arrivedNow)} 택배가 도착했습니다. 아래 버튼을 눌러 상자를 개봉하세요.`);
+    if (messages.length > 0) this.refreshUi(messages.join('\n'));
     this.refreshParcelDisplays();
   }
 
@@ -232,7 +266,7 @@ class GameScreenMobileScene extends Phaser.Scene {
       const needed = this.goals.some((goal) => goal.type === type && !goal.delivered && !goal.installing);
       const placing = this.pendingParcel === type && this.generatorPlacementActive;
       display.need.setVisible(needed);
-      let statusText = '탭하면 택배를 주문합니다';
+      let statusText = this.autoPlacementEnabled ? '배송 완료 시 자동 배치' : '탭하면 택배를 주문합니다';
       let statusColor = MUTED;
       if (parcel?.state === 'delivering') {
         statusText = `배송 중… ${Math.max(0, (parcel.readyAt - this.time.now) / 1000).toFixed(1)}초`;
@@ -254,10 +288,12 @@ class GameScreenMobileScene extends Phaser.Scene {
     if (!this.pendingParcel) return;
     this.parcels.set(this.pendingParcel, { state: 'idle', readyAt: 0 });
     this.pendingParcel = undefined;
+    this.clearPlacementGhost();
     this.refreshParcelDisplays();
   }
 
   private handleCell(row: number, column: number) {
+    this.clearPlacementGhost();
     const clicked = this.pieceAt(row, column);
     if (clicked && this.generatorPlacementActive && !this.selectedPiece && clicked.type === this.selectedGenerator && clicked.level === 1) {
       clicked.item.destroy(true);
@@ -312,6 +348,97 @@ class GameScreenMobileScene extends Phaser.Scene {
     this.generatorPlacementActive = false;
     this.consumePendingParcel();
     this.refreshUi(`${this.partName(this.selectedGenerator)} Lv.1을 배치했습니다.`);
+  }
+
+  private toggleAutoPlacement() {
+    this.hooks.onSfx?.('tap');
+    this.autoPlacementEnabled = !this.autoPlacementEnabled;
+    this.hooks.onAutoPlacementChange?.(this.autoPlacementEnabled);
+    this.refreshAutoPlacementToggle();
+    this.refreshParcelDisplays();
+
+    if (!this.autoPlacementEnabled) {
+      this.refreshUi('자동 배치를 껐습니다. 배송 완료 후 상자를 눌러 원하는 위치에 직접 배치하세요.');
+      return;
+    }
+
+    let placed = 0;
+    let blocked = 0;
+    this.parcels.forEach((parcel, type) => {
+      if (parcel.state !== 'arrived') return;
+      if (this.tryAutoPlaceParcel(type)) placed += 1;
+      else blocked += 1;
+    });
+    if (placed > 0) this.hooks.onSfx?.('parcel');
+    this.refreshUi(placed > 0
+      ? `자동 배치를 켰습니다. 도착한 택배 ${placed}개를 빈 공간에 배치했습니다${blocked > 0 ? ` · 공간 부족 ${blocked}개` : ''}.`
+      : blocked > 0
+        ? '자동 배치를 켰지만 현재 보드에 빈 공간이 없습니다. 도착한 택배는 그대로 보관됩니다.'
+        : '자동 배치를 켰습니다. 다음 택배는 배송 완료 후 빈 공간에 바로 배치됩니다.');
+  }
+
+  private refreshAutoPlacementToggle() {
+    this.autoPlacementToggle?.setFillStyle(this.autoPlacementEnabled ? 0x3f7851 : BROWN);
+    this.autoPlacementCheck?.setText(this.autoPlacementEnabled ? '✓' : '');
+    this.autoPlacementState?.setText(this.autoPlacementEnabled ? 'ON' : 'OFF');
+  }
+
+  private tryAutoPlaceParcel(type: PartType) {
+    const placement = this.findFirstPlacement(type);
+    if (!placement) return false;
+    this.clearPlacementGhost();
+    this.pieces.push(this.makePiece(type, placement.row, placement.column, placement.rotation, 1));
+    this.parcels.set(type, { state: 'idle', readyAt: 0 });
+    if (this.pendingParcel === type) {
+      this.pendingParcel = undefined;
+      this.generatorPlacementActive = false;
+    }
+    return true;
+  }
+
+  private findFirstPlacement(type: PartType) {
+    const rotatedShapes = [0, 1, 2, 3].map((rotation) => this.shape(type, rotation)
+      .map((cell) => ({ row: cell.y, column: cell.x })));
+    const occupiedCells = this.pieces.flatMap((piece) => this.occupied(piece));
+    return findFirstAvailablePlacement(this.rows, this.columns, rotatedShapes, occupiedCells);
+  }
+
+  private showPlacementGhost(row: number, column: number) {
+    this.clearPlacementGhost();
+    if (!this.generatorPlacementActive && !this.selectedPiece) return;
+
+    const moving = this.selectedPiece;
+    const type = moving?.type ?? this.selectedGenerator;
+    const clicked = this.pieceAt(row, column);
+    const mergeTarget = clicked && clicked.id !== moving?.id
+      && clicked.type === type
+      && clicked.level === (moving?.level ?? 1)
+      && clicked.level < 4
+      ? clicked
+      : undefined;
+    const clickedSelf = Boolean(moving && clicked?.id === moving.id);
+    const rotation = mergeTarget?.rotation ?? moving?.rotation ?? this.generatorRotation;
+    const anchorRow = mergeTarget?.row ?? (clickedSelf ? moving!.row : row);
+    const anchorColumn = mergeTarget?.column ?? (clickedSelf ? moving!.column : column);
+    const valid = Boolean(mergeTarget) || (clickedSelf
+      ? this.canPlace(type, anchorRow, anchorColumn, rotation, moving?.id)
+      : !clicked && this.canPlace(type, anchorRow, anchorColumn, rotation, moving?.id));
+    const color = valid ? PART_COLORS[type] : 0xc95746;
+    const blocks = this.shape(type, rotation).map((point) => this.add.rectangle(
+      point.x * this.cellSize,
+      point.y * this.cellSize,
+      this.cellSize - this.gap * 2,
+      this.cellSize - this.gap * 2,
+      color,
+      mergeTarget ? 0.5 : 0.32,
+    ).setStrokeStyle(3, valid ? CREAM : 0xffa0ad, 0.9));
+    const origin = this.cellCenter(anchorRow, anchorColumn);
+    this.placementGhost = this.add.container(origin.x, origin.y, blocks).setDepth(6);
+  }
+
+  private clearPlacementGhost() {
+    this.placementGhost?.destroy(true);
+    this.placementGhost = undefined;
   }
 
   private rotateSelected() {
