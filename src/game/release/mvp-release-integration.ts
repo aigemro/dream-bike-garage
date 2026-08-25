@@ -16,6 +16,7 @@ type ReleaseState = {
   completedOrders: number;
   orderIndex: number;
   tutorialDone: boolean;
+  autoPlacement: boolean;
   bgm: boolean;
   sfx: boolean;
   vibration: boolean;
@@ -28,6 +29,7 @@ const DEFAULT_STATE: ReleaseState = {
   completedOrders: 0,
   orderIndex: 0,
   tutorialDone: false,
+  autoPlacement: false,
   bgm: true,
   sfx: true,
   vibration: false,
@@ -102,6 +104,11 @@ export class MvpReleaseIntegrationController {
       this.rewardApplied = false;
       this.game = startGameScreenMobilePrototype(this.stageId, {
         orderIndex: this.state.orderIndex,
+        autoPlacement: this.state.autoPlacement,
+        onAutoPlacementChange: (enabled) => {
+          this.state.autoPlacement = enabled;
+          this.saveState();
+        },
         onOrderComplete: () => {
           this.state.completedOrders += 1;
           this.saveState();
