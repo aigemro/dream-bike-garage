@@ -7,6 +7,7 @@ import { drawPixelBike, drawPixelPartIcon, makeWarmColorway, bikePartAnchorOffse
 import { PARTS, ORDERS, type PartType, type Goal } from './merge-prototype';
 import { findFirstAvailablePlacement } from './auto-placement';
 import { cancelPartSelection } from './part-selection';
+import { orderMetaAt } from './meta-progress';
 
 type Point = { x: number; y: number };
 type Piece = { id: number; type: PartType; level: number; row: number; column: number; rotation: number; item: Phaser.GameObjects.Container };
@@ -21,7 +22,6 @@ const GOLD = 0xf6d995;
 const BORDER = 0x3b2531;
 const BROWN = 0x8e5136;
 const PART_COLORS: Record<PartType, number> = WARM_PART_COLORS; // 부품 아이콘과 같은 대표색 단일 출처
-const ORDER_NAMES = ['통학용 어반 로드', '트레일 MTB'];
 
 // 주문 카드 자전거 기준점 (x=자전거 가로 중앙, y=바퀴 축 높이 · 부품 장착 연출 목표 좌표의 기준)
 // 픽셀 자전거는 cell 2 기준 상단 y-38, 하단 y+20, 폭 약 108px → 카드(중심 y=138, 높이 140) 우측 절반에 들어맞는다.
@@ -32,8 +32,10 @@ const BIKE_CELL = 2;
 export type GameScreenMobileHooks = {
   orderIndex?: number;
   autoPlacement?: boolean;
+  continuousOrders?: boolean;
+  getDaySummary?: () => { dayNumber: number; remainingMs: number; durationMs: number; earnings: number };
   onAutoPlacementChange?: (enabled: boolean) => void;
-  onOrderComplete?: (orderIndex: number) => void;
+  onOrderComplete?: (orderIndex: number) => void | { reward: number; totalDayIncome: number };
   onSfx?: (event: 'tap' | 'parcel' | 'merge' | 'install' | 'complete' | 'error') => void;
 };
 
@@ -75,6 +77,11 @@ class GameScreenMobileScene extends Phaser.Scene {
   private autoPlacementToggle?: Phaser.GameObjects.Rectangle;
   private autoPlacementCheck?: Phaser.GameObjects.Text;
   private autoPlacementState?: Phaser.GameObjects.Text;
+  private dayBadgeText?: Phaser.GameObjects.Text;
+  private dayTimerText?: Phaser.GameObjects.Text;
+  private dayIncomeText?: Phaser.GameObjects.Text;
+  private dayTimerPanel?: Phaser.GameObjects.Rectangle;
+  private dayTimerFill?: Phaser.GameObjects.Rectangle;
 
   create() {
     this.cameras.main.setBackgroundColor('#c78452');
@@ -93,7 +100,18 @@ class GameScreenMobileScene extends Phaser.Scene {
   }
 
   update() {
-    this.metrics.setText(`${((this.time.now - this.startedAt) / 1000).toFixed(0)}s · 머지 ${this.merges}`);
+    const summary = this.hooks.getDaySummary?.();
+    this.metrics.setText(summary ? '' : `${((this.time.now - this.startedAt) / 1000).toFixed(0)}s · 머지 ${this.merges}`);
+    if (summary && this.dayBadgeText && this.dayTimerText && this.dayIncomeText && this.dayTimerPanel && this.dayTimerFill) {
+      const remainingSeconds = Math.max(0, Math.ceil(summary.remainingMs / 1000));
+      const urgent = summary.remainingMs <= 3000;
+      const remainingRatio = Phaser.Math.Clamp(summary.remainingMs / Math.max(1, summary.durationMs), 0, 1);
+      this.dayBadgeText.setText(`DAY ${summary.dayNumber}`);
+      this.dayTimerText.setText(`00:${String(remainingSeconds).padStart(2, '0')}`).setColor(urgent ? '#fff1c6' : INK);
+      this.dayIncomeText.setText(`오늘 수입  ${summary.earnings.toLocaleString()}`);
+      this.dayTimerPanel.setFillStyle(urgent ? 0xc95746 : 0xf4b84a);
+      this.dayTimerFill.setDisplaySize(378 * remainingRatio, 4).setFillStyle(urgent ? 0xc95746 : 0x5e9a67);
+    }
     this.tickParcels();
   }
 
@@ -106,24 +124,35 @@ class GameScreenMobileScene extends Phaser.Scene {
   }
 
   private drawHeader() {
-    this.add.rectangle(195, 30, 390, 60, CREAM).setStrokeStyle(4, BORDER).setDepth(8);
-    this.add.rectangle(56, 30, 76, 24, 0xc95746).setStrokeStyle(2, BORDER).setDepth(9);
-    this.add.text(56, 30, 'WORK', { fontFamily: FONT, fontSize: '11px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(10);
-    this.add.text(104, 22, '두리 자전거 공방 · 작업대', { fontFamily: FONT, fontSize: '13px', color: INK, fontStyle: 'bold' }).setDepth(10);
+    const hasDayHud = Boolean(this.hooks.getDaySummary);
+    this.add.rectangle(195, hasDayHud ? 34 : 30, 390, hasDayHud ? 68 : 60, CREAM).setStrokeStyle(4, BORDER).setDepth(8);
+    this.add.rectangle(hasDayHud ? 46 : 56, hasDayHud ? 17 : 30, hasDayHud ? 68 : 76, hasDayHud ? 22 : 24, 0xc95746).setStrokeStyle(2, BORDER).setDepth(9);
+    this.add.text(hasDayHud ? 46 : 56, hasDayHud ? 17 : 30, 'WORK', { fontFamily: FONT, fontSize: '11px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(10);
+    this.add.text(hasDayHud ? 88 : 104, hasDayHud ? 10 : 22, '두리 자전거 공방 · 작업대', { fontFamily: FONT, fontSize: hasDayHud ? '12px' : '13px', color: INK, fontStyle: 'bold' }).setDepth(10);
     this.metrics = this.add.text(382, 39, '', { fontFamily: FONT, fontSize: '10px', color: MUTED }).setOrigin(1, 0.5).setDepth(10);
-    this.add.text(104, 40, 'MVP 통합 · 모바일 세로 B안', { fontFamily: FONT, fontSize: '9px', color: MUTED }).setDepth(10);
+    if (!hasDayHud) return;
+
+    this.add.rectangle(48, 47, 72, 26, BROWN).setStrokeStyle(2, BORDER).setDepth(9);
+    this.dayBadgeText = this.add.text(48, 47, 'DAY 1', { fontFamily: FONT, fontSize: '12px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(10);
+    this.dayTimerPanel = this.add.rectangle(132, 47, 84, 30, 0xf4b84a).setStrokeStyle(2, BORDER).setDepth(9);
+    this.dayTimerText = this.add.text(132, 47, '00:10', { fontFamily: FONT, fontSize: '17px', color: INK, fontStyle: 'bold' }).setOrigin(0.5).setDepth(10);
+    this.add.rectangle(280, 47, 196, 26, GOLD).setStrokeStyle(2, BROWN).setDepth(9);
+    this.dayIncomeText = this.add.text(280, 47, '오늘 수입  0', { fontFamily: FONT, fontSize: '11px', color: MUTED, fontStyle: 'bold' }).setOrigin(0.5).setDepth(10);
+    this.add.rectangle(6, 65, 378, 4, 0x573044).setOrigin(0, 0.5).setDepth(10);
+    this.dayTimerFill = this.add.rectangle(6, 65, 378, 4, 0x5e9a67).setOrigin(0, 0.5).setDepth(11);
   }
 
   private drawOrderCard() {
-    this.add.rectangle(195, 138, 374, 140, CREAM).setStrokeStyle(4, BROWN).setDepth(2);
-    this.add.rectangle(64, 78, 88, 22, 0xc95746).setStrokeStyle(2, BORDER).setDepth(3);
-    this.add.text(64, 78, 'NEW ORDER', { fontFamily: FONT, fontSize: '9px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(4);
-    this.orderTitle = this.add.text(20, 94, '', { fontFamily: FONT, fontSize: '15px', color: INK, fontStyle: 'bold' }).setDepth(4);
-    this.orderProgress = this.add.text(20, 117, '', { fontFamily: FONT, fontSize: '10px', color: MUTED, fontStyle: 'bold' }).setDepth(4);
+    const dayHudOffset = this.hooks.getDaySummary ? 8 : 0;
+    this.add.rectangle(195, 138 + dayHudOffset, 374, 140, CREAM).setStrokeStyle(4, BROWN).setDepth(2);
+    this.add.rectangle(64, 78 + dayHudOffset, 88, 22, 0xc95746).setStrokeStyle(2, BORDER).setDepth(3);
+    this.add.text(64, 78 + dayHudOffset, 'NEW ORDER', { fontFamily: FONT, fontSize: '9px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(4);
+    this.orderTitle = this.add.text(20, 94 + dayHudOffset, '', { fontFamily: FONT, fontSize: '15px', color: INK, fontStyle: 'bold' }).setDepth(4);
+    this.orderProgress = this.add.text(20, 117 + dayHudOffset, '', { fontFamily: FONT, fontSize: '10px', color: MUTED, fontStyle: 'bold' }).setDepth(4);
 
     this.goals.forEach((goal, index) => {
       const x = 42 + index * 46;
-      const y = 168;
+      const y = 168 + dayHudOffset;
       const panel = this.add.rectangle(x, y, 42, 40, GOLD).setStrokeStyle(2, PART_COLORS[goal.type]).setDepth(3);
       // 칩 위쪽은 부품 픽셀 아이콘, 아래쪽은 상태 텍스트
       drawPixelPartIcon(this, x, y - 9, 1.5, goal.type, { depth: 4 });
@@ -134,15 +163,16 @@ class GameScreenMobileScene extends Phaser.Scene {
     this.refreshOrder();
   }
 
-  // 현재 주문에 맞는 자전거 카테고리 ('통학용 어반 로드' → city, '트레일 MTB' → mtb)
+  // 현재 주문에 맞는 자전거 카테고리 — 주문명·보상과 함께 meta-progress의 주문 메타를 단일 출처로 사용 (#201)
   private orderCategory(): BikeCategory {
-    return this.orderIndex === 1 ? 'mtb' : 'city';
+    return orderMetaAt(this.orderIndex)?.bikeCategory ?? 'city';
   }
 
   private drawOrderBike() {
     this.orderBike?.destroy();
+    const dayHudOffset = this.hooks.getDaySummary ? 8 : 0;
     const delivered = (type: PartType) => this.goals.find((goal) => goal.type === type)?.delivered ?? false;
-    this.orderBike = drawPixelBike(this, BIKE_X, BIKE_Y, BIKE_CELL, {
+    this.orderBike = drawPixelBike(this, BIKE_X, BIKE_Y + dayHudOffset, BIKE_CELL, {
       category: this.orderCategory(),
       colorway: makeWarmColorway(0xc95746),
       depth: 4,
@@ -158,7 +188,7 @@ class GameScreenMobileScene extends Phaser.Scene {
   // 픽셀 스프라이트 앵커(x=중앙, y=축) 기준 부품 위치 오프셋을 월드 좌표로 환산 (장착 연출 목표)
   private bikeAnchor(type: PartType): Point {
     const { dx, dy } = bikePartAnchorOffset(this.orderCategory(), type, BIKE_CELL);
-    return { x: BIKE_X + dx, y: BIKE_Y + dy };
+    return { x: BIKE_X + dx, y: BIKE_Y + (this.hooks.getDaySummary ? 8 : 0) + dy };
   }
 
   private drawBoard() {
@@ -598,14 +628,29 @@ class GameScreenMobileScene extends Phaser.Scene {
     if (this.orderCompleting) return;
     this.orderCompleting = true;
     this.hooks.onSfx?.('complete');
-    this.info.setText('주문 완료! 모든 부품이 장착되어 자전거를 납품했습니다. 정산 화면으로 이동합니다.');
+    this.info.setText('자전거 완성! 납품 처리 후 다음 주문을 준비합니다.');
+    if (this.hooks.continuousOrders) {
+      this.time.delayedCall(650, () => {
+        const result = this.hooks.onOrderComplete?.(this.orderIndex);
+        this.orderCompleting = false;
+        this.orderIndex = (this.orderIndex + 1) % 2;
+        this.goals = ORDERS[this.orderIndex].map((goal) => ({ ...goal }));
+        this.startedAt = this.time.now;
+        this.drawOrderBike();
+        this.refreshOrder();
+        this.refreshParcelDisplays();
+        const income = result && typeof result === 'object' ? ` +${result.reward.toLocaleString()} · 오늘 수입 ${result.totalDayIncome.toLocaleString()}` : '';
+        this.refreshUi(`납품 완료${income}! 다음 자전거 주문이 바로 시작되었습니다. 보드의 남은 부품은 유지됩니다.`);
+      });
+      return;
+    }
     if (this.hooks.onOrderComplete) {
       this.time.delayedCall(900, () => this.hooks.onOrderComplete?.(this.orderIndex));
       return;
     }
     this.time.delayedCall(1600, () => {
       this.orderCompleting = false;
-      this.orderIndex = (this.orderIndex + 1) % 2;
+      this.orderIndex = (this.orderIndex + 1) % ORDERS.length;
       this.goals = ORDERS[this.orderIndex].map((goal) => ({ ...goal }));
       this.startedAt = this.time.now;
       this.drawOrderBike();
@@ -617,7 +662,7 @@ class GameScreenMobileScene extends Phaser.Scene {
 
   private refreshOrder() {
     const installed = this.goals.filter((goal) => goal.delivered).length;
-    this.orderTitle.setText(ORDER_NAMES[this.orderIndex]);
+    this.orderTitle.setText(orderMetaAt(this.orderIndex)?.name ?? `주문 ${this.orderIndex + 1}`);
     this.orderProgress.setText(`장착 ${installed}/${this.goals.length} · 부품별 자동 장착`);
     this.goals.forEach((goal) => {
       const chip = this.goalChips.get(goal.type);

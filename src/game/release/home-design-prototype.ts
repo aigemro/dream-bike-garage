@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { DuskWorkshopGarageScene } from './home-design-dusk-workshop';
 import { RetroPixelGarageScene } from './home-design-retro-pixel';
 import { ModernCasualGarageScene } from './home-design-modern-casual';
-import { drawPixelBike, makeWarmColorway } from './bike-pixel-sprite';
+import { drawPixelBike, makeWarmColorway, bikeCategoryFromKorean } from './bike-pixel-sprite';
 
 export type HomeDesignPrototypeMode =
   | 'warm-pixel-garage'
@@ -10,14 +10,52 @@ export type HomeDesignPrototypeMode =
   | 'retro-pixel-garage'
   | 'modern-casual-garage';
 
+// 릴리스 통합용 실제 진행 데이터 (#205): 지정 시 홈 화면의 고정 문구·샘플 숫자를 대체합니다.
+export type HomeProgressData = {
+  ownedCount: number;
+  catalogSize: number;
+  orderName: string;
+  orderCategory: 'road' | 'mtb' | 'gravel' | 'minivelo' | 'city';
+  orderReward: number;
+  // NEXT GOAL 표기: 제목 줄과 남은 조건 안내 줄
+  nextGoalLabel: string;
+  nextGoalHint: string;
+  // Garage 성장 게이지 (0~100)
+  growthPercent: number;
+  // 컬렉션에서 선택한 대표 자전거(완성 자전거)와 성장 상태 반영 — 클릭 시 성장 화면 진입 (#223)
+  heroBike: {
+    id: string;
+    name: string;
+    category: '로드' | 'MTB' | '그래블' | '미니벨로';
+    color: number;
+    grade: string;
+    stage: 1 | 2 | 3;
+  };
+  // 제작 중 자전거 (#222): 있으면 Garage에 만들기 버튼이 열린다
+  craft?: {
+    bikeId: string;
+    bikeName: string;
+    installedCount: number;
+    totalParts: number;
+  };
+};
+
 export type HomeDesignHooks = {
   coins?: number;
   completedOrders?: number;
+  progress?: HomeProgressData;
+  dayNumber?: number;
+  dayRemainingMs?: number;
+  dayStatusLabel?: string;
   onPlay?: () => void;
   onCollection?: () => void;
   onShowcase?: () => void;
   onProfile?: () => void;
   onSettings?: () => void;
+  // 제작 중 자전거 만들기 진입 (#222)
+  onCraft?: (bikeId: string) => void;
+  // Garage 대표 자전거 클릭 → 성장 화면 진입 (#223)
+  onHeroBike?: (bikeId: string) => void;
   onSfx?: (event: 'tap') => void;
 };
 
@@ -62,54 +100,89 @@ class WarmPixelGarageScene extends Phaser.Scene {
   }
 
   private renderGarageHome() {
+    // 실제 진행 데이터가 있으면 고정 문구·샘플 숫자 대신 메타 루프 상태를 표시한다 (#205)
+    const progress = this.hooks.progress;
     this.renderWorkshop();
     this.renderTopBar();
 
     this.pixelRect(195, 125, 238, 60, P.paper, P.ink, 10);
     this.label(88, 101, 'TODAY\'S ORDER', 9, '#6e473b', true).setDepth(11);
-    this.label(88, 119, '통학용 어반 바이크', 14, '#3b2531', true).setDepth(11);
-    this.label(88, 140, `완료 ${this.hooks.completedOrders ?? 0}건  ·  보상 1,000`, 10, '#8e5136', true).setDepth(11);
-    // 주문 미리보기: 통학용 어반 주문에 맞춘 시티 자전거 픽셀 스프라이트(앞바구니 실루엣).
+    this.label(88, 119, progress?.orderName ?? '통학용 어반 바이크', 14, '#3b2531', true).setDepth(11);
+    this.label(88, 140, `완료 ${this.hooks.completedOrders ?? 0}건  ·  보상 ${(progress?.orderReward ?? 1000).toLocaleString()}`, 10, '#8e5136', true).setDepth(11);
+    // 주문 미리보기: 오늘의 주문 카테고리에 맞춘 자전거 픽셀 스프라이트.
     // 카드(중심 y=125, 높이 60 → 95~155) 안에 들어오도록 cell 1.2 사용: 세로 108~143px, 가로 폭 약 65px로 카드 우측 변까지 딱 맞음
-    drawPixelBike(this, 282, 131, 1.2, { category: 'city', colorway: makeWarmColorway(P.red), depth: 12 });
+    drawPixelBike(this, 282, 131, 1.2, { category: this.hooks.progress?.orderCategory ?? 'city', colorway: makeWarmColorway(P.red), depth: 12 });
 
-    this.button(38, 205, 54, 48, 'EVENT\n3', () => this.notify('이벤트 준비 중'));
-    this.button(38, 263, 54, 48, 'RANK\n#18', () => this.notify('랭킹 준비 중'));
+    // 준비 중 스텁 버튼(이벤트·랭킹·조립·직급)은 디자인 비교용 독립 데모에서만 노출한다
+    if (!progress) {
+      this.button(38, 205, 54, 48, 'EVENT\n3', () => this.notify('이벤트 준비 중'));
+      this.button(38, 263, 54, 48, 'RANK\n#18', () => this.notify('랭킹 준비 중'));
+    }
     this.button(352, 205, 54, 48, '전시\n보기', () => {
       this.hooks.onSfx?.('tap');
       this.hooks.onShowcase ? this.hooks.onShowcase() : this.notify('Garage 전시 화면');
     });
-    this.button(352, 263, 54, 48, '조립\n2/4', () => this.notify('조립 현황'));
-    this.button(352, 321, 54, 48, 'STATUS\nLv.12', () => this.notify('견습 정비사 Lv.12'));
+    if (!progress) {
+      this.button(352, 263, 54, 48, '조립\n2/4', () => this.notify('조립 현황'));
+      this.button(352, 321, 54, 48, 'STATUS\nLv.12', () => this.notify('견습 정비사 Lv.12'));
+    }
+    // 제작 중 자전거가 있으면 Garage에 만들기 버튼이 열린다 (#222)
+    if (progress?.craft) {
+      const craft = progress.craft;
+      this.button(352, 263, 54, 48, `만들기\n${craft.installedCount}/${craft.totalParts}`, () => {
+        this.hooks.onSfx?.('tap');
+        this.hooks.onCraft ? this.hooks.onCraft(craft.bikeId) : this.notify(`${craft.bikeName} 제작 중`);
+      }, true);
+    }
 
     this.pixelRect(195, 387, 254, 430, 0xf2c77e, P.ink, 7).setAlpha(.88);
     this.label(82, 183, 'MY LITTLE GARAGE', 10, '#6e473b', true).setDepth(13);
-    this.label(82, 202, '나의 드림 로드바이크', 17, '#3b2531', true).setDepth(13);
-    this.label(82, 226, '햇살 아래 한 단계씩 완성 중', 10, '#7b5140').setDepth(13);
+    this.label(82, 202, progress?.heroBike.name ?? '나의 드림 로드바이크', 17, '#3b2531', true).setDepth(13);
+    this.label(82, 226, progress ? `${progress.heroBike.grade} 등급 · 급여로 한 단계씩 성장 중` : '햇살 아래 한 단계씩 완성 중', 10, '#7b5140').setDepth(13);
     // 정비 매트 + 그림자 위에 64×40 그리드 픽셀 스프라이트 로드바이크를 배치
     // (cell 4 → 폭 약 216px, 바퀴 하단 = y + 10*cell = 412로 매트 상단(410)에 닿음)
     this.add.rectangle(195, 416, 240, 12, 0x9c5b3c).setStrokeStyle(2, P.darkWood).setDepth(12);
     this.add.ellipse(195, 419, 218, 26, 0x6e473b, .28).setDepth(12);
-    drawPixelBike(this, 195, 372, 4, { category: 'road', colorway: makeWarmColorway(P.red), depth: 13 });
+    const heroCategory = progress ? bikeCategoryFromKorean(progress.heroBike.category) : 'road';
+    const heroColor = progress?.heroBike.color ?? P.red;
+    // 드림 등급(3단계) 달성 시 C안과 같은 골드 링, 2단계부터 강화 반짝임을 표시해 성장 상태를 홈에서도 보여준다
+    if (progress && progress.heroBike.stage >= 3) this.add.circle(195, 350, 122, P.gold, .14).setStrokeStyle(3, P.gold).setDepth(12);
+    drawPixelBike(this, 195, 372, 4, { category: heroCategory, colorway: makeWarmColorway(heroColor), depth: 13 });
+    if (progress && progress.heroBike.stage >= 2) {
+      [[112, 300], [270, 286], [252, 392]].forEach(([sx, sy]) => this.add.rectangle(sx, sy, 5, 5, P.gold).setDepth(14));
+    }
+    if (progress) {
+      this.pixelRect(300, 202, 78, 26, progress.heroBike.stage >= 3 ? P.gold : 0xffe6a8, P.wood, 13);
+      this.label(300, 202, `${progress.heroBike.grade} 등급`, 10, progress.heroBike.stage >= 3 ? '#a14a38' : '#5d3b34', true).setOrigin(.5).setDepth(14);
+      // 대표 자전거 클릭 → 성장 화면 진입 (#223)
+      this.label(195, 246, '▼ 자전거를 눌러 성장', 9, '#a14a38', true).setOrigin(.5).setDepth(14);
+      this.add.rectangle(195, 350, 240, 150, 0xffffff, 0.001)
+        .setDepth(15).setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          this.hooks.onSfx?.('tap');
+          this.hooks.onHeroBike ? this.hooks.onHeroBike(progress.heroBike.id) : this.notify(`${progress.heroBike.name} 성장 화면`);
+        });
+    }
 
     this.pixelRect(195, 478, 222, 72, 0xffe6a8, P.wood, 13);
     this.label(98, 454, 'COLLECTION', 8, '#7b5140', true).setDepth(14);
-    this.label(98, 471, '8 / 24', 17, '#3b2531', true).setDepth(14);
+    this.label(98, 471, progress ? `${progress.ownedCount} / ${progress.catalogSize}` : '8 / 24', 17, '#3b2531', true).setDepth(14);
     this.label(192, 454, 'NEXT GOAL', 8, '#7b5140', true).setDepth(14);
-    this.label(192, 471, 'TRAIL MTB', 12, '#3b2531', true).setDepth(14);
-    this.label(192, 490, '주문 2건 남음', 9, '#a14a38', true).setDepth(14);
+    this.label(192, 471, progress?.nextGoalLabel ?? 'TRAIL MTB', 12, '#3b2531', true).setDepth(14);
+    this.label(192, 490, progress?.nextGoalHint ?? '주문 2건 남음', 9, '#a14a38', true).setDepth(14);
 
+    const growthPercent = progress ? Math.max(0, Math.min(100, progress.growthPercent)) : 33;
     this.add.rectangle(195, 526, 212, 10, P.darkWood).setDepth(13);
-    this.add.rectangle(125, 526, 72, 10, P.green).setDepth(14);
-    this.label(195, 544, 'Garage 성장 33%', 9, '#5d3b34', true).setOrigin(.5).setDepth(14);
+    if (growthPercent > 0) this.add.rectangle(89 + 212 * growthPercent / 100 / 2, 526, 212 * growthPercent / 100, 10, P.green).setDepth(14);
+    this.label(195, 544, `Garage 성장 ${growthPercent}%`, 9, '#5d3b34', true).setOrigin(.5).setDepth(14);
 
     this.pixelRect(195, 592, 310, 50, 0xfff1c6, P.wood, 14);
     this.label(195, 592, this.toast, 10, '#5d3b34', true).setOrigin(.5).setDepth(15);
 
     this.pixelRect(195, 744, 366, 82, P.wood, P.ink, 18);
-    this.button(67, 741, 80, 48, '프로필\nLv.12', () => { this.hooks.onSfx?.('tap'); this.hooks.onProfile ? this.hooks.onProfile() : this.notify('견습 정비사 프로필'); });
+    this.button(67, 741, 80, 48, progress ? '프로필' : '프로필\nLv.12', () => { this.hooks.onSfx?.('tap'); this.hooks.onProfile ? this.hooks.onProfile() : this.notify('견습 정비사 프로필'); });
     this.button(195, 738, 150, 58, '▶  PLAY', () => { this.hooks.onSfx?.('tap'); if (this.hooks.onPlay) this.hooks.onPlay(); else { this.playing = true; this.render(); } }, true);
-    this.button(323, 741, 80, 48, '자전거\n8/24', () => { this.hooks.onSfx?.('tap'); this.hooks.onCollection ? this.hooks.onCollection() : this.notify('자전거 도감'); });
+    this.button(323, 741, 80, 48, progress ? `자전거\n${progress.ownedCount}/${progress.catalogSize}` : '자전거\n8/24', () => { this.hooks.onSfx?.('tap'); this.hooks.onCollection ? this.hooks.onCollection() : this.notify('자전거 도감'); });
     this.label(195, 793, 'DREAM BIKE GARAGE · WARM PIXEL HOME', 8, '#fff1c6', true).setOrigin(.5).setDepth(22);
   }
 
@@ -202,10 +275,20 @@ class WarmPixelGarageScene extends Phaser.Scene {
 
   private renderTopBar() {
     this.pixelRect(195, 39, 366, 54, P.paper, P.ink, 15);
-    this.label(28, 20, 'ENERGY', 8, '#795044', true).setDepth(16);
-    this.label(28, 37, '72 / 100', 14, '#3f7851', true).setDepth(16);
-    this.add.rectangle(112, 43, 72, 8, P.darkWood).setDepth(16).setOrigin(0, .5);
-    this.add.rectangle(112, 43, 52, 8, P.green).setDepth(17).setOrigin(0, .5);
+    if (this.hooks.dayNumber) {
+      const remainingSeconds = Math.max(0, Math.ceil((this.hooks.dayRemainingMs ?? 0) / 1000));
+      this.label(28, 18, `DAY ${this.hooks.dayNumber}`, 9, '#795044', true).setDepth(16);
+      this.label(28, 36, `${this.hooks.dayStatusLabel ?? '준비'} · 00:${String(remainingSeconds).padStart(2, '0')}`, 12, '#3f7851', true).setDepth(16);
+    } else if (this.hooks.progress) {
+      // 에너지 시스템은 미도입(레퍼런스 결정)이므로 통합 모드에서는 납품 실적을 표시한다
+      this.label(28, 20, 'DELIVERY', 8, '#795044', true).setDepth(16);
+      this.label(28, 37, `납품 ${this.hooks.completedOrders ?? 0}건`, 14, '#3f7851', true).setDepth(16);
+    } else {
+      this.label(28, 20, 'ENERGY', 8, '#795044', true).setDepth(16);
+      this.label(28, 37, '72 / 100', 14, '#3f7851', true).setDepth(16);
+      this.add.rectangle(112, 43, 72, 8, P.darkWood).setDepth(16).setOrigin(0, .5);
+      this.add.rectangle(112, 43, 52, 8, P.green).setDepth(17).setOrigin(0, .5);
+    }
     this.label(274, 20, 'COIN', 8, '#795044', true).setDepth(16);
     this.label(274, 37, (this.hooks.coins ?? 2480).toLocaleString(), 14, '#a16028', true).setDepth(16);
     if (this.hooks.onSettings) this.button(352, 39, 34, 34, '⚙', () => { this.hooks.onSfx?.('tap'); this.hooks.onSettings?.(); });

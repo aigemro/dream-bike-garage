@@ -2,12 +2,41 @@
 // 자전거 그림은 자체 선 드로잉 대신 공용 픽셀 스프라이트 모듈(bike-pixel-sprite)을 사용합니다.
 import Phaser from 'phaser';
 import { drawPixelBike, addPixelBikeImage, makeWarmColorway, bikeCategoryFromKorean } from './bike-pixel-sprite';
+import { CATALOG_BIKES } from './bike-catalog';
+import { CRAFT_PARTS, dreamUpgradeCost, type CraftPartType } from './meta-progress';
 
 export type BikeCollectionDesignMode = 'warm-catalog' | 'warm-showcase' | 'warm-dream-growth';
 
 export type BikeCollectionDesignHooks = {
   coins?: number;
   initialBikeId?: string;
+  // 릴리스 통합용 실제 진행 데이터 (#201): 지정 시 샘플 보유 상태(8/24) 대신 이 목록으로 잠금을 결정합니다.
+  // ownedBikeIds = 완성(보유) 자전거. 등록·이해도(#221)는 도감 상태 표시에 사용합니다.
+  ownedBikeIds?: string[];
+  registeredBikeIds?: string[];
+  understandingByBikeId?: Record<string, number>;
+  newBikeIds?: string[];
+  showcaseSlots?: Array<string | null>;
+  onShowcaseChange?: (slots: Array<string | null>) => void;
+  onBikeSeen?: (bikeId: string) => void;
+  // 자전거 만들기 연동 (#222): 등록·미완성 자전거의 장착 부품과 제작 처리(코인 차감+장착 원자 처리)
+  craftPartsByBikeId?: Record<string, CraftPartType[]>;
+  onCraftPart?: (bikeId: string, part: CraftPartType) => {
+    ok: boolean;
+    reason?: 'coins' | 'not-registered' | 'already-crafted' | 'already-installed' | 'unknown';
+    coins: number;
+    installedParts: CraftPartType[];
+    completed: boolean;
+  };
+  // 드림 바이크 성장 연동 (#203): 지정 시 강화 수치와 코인 차감을 컨트롤러가 원자적으로 처리합니다.
+  dreamStats?: Record<'성능' | '스타일' | '희귀도', number>;
+  onDreamUpgrade?: (stat: '성능' | '스타일' | '희귀도') => {
+    ok: boolean;
+    reason?: 'coins' | 'max' | 'not-crafted';
+    coins: number;
+    stats: Record<'성능' | '스타일' | '희귀도', number>;
+    stageUp?: boolean;
+  };
   onHome?: () => void;
   onCatalog?: () => void;
   onShowcase?: () => void;
@@ -34,33 +63,9 @@ type DesignBike = {
   hint: string;
 };
 
-// 홈 A안과 동일한 수집 데이터: 24종 중 8종 보유, 다음 목표 TRAIL MTB
-const DESIGN_BIKES: DesignBike[] = [
-  { id: 'dream-road', name: '나의 드림 로드바이크', category: '로드', grade: '중급', color: P.red, owned: true, hint: 'Garage 대표 자전거' },
-  { id: 'urban-road', name: '어반 로드', category: '로드', grade: '입문', color: P.blue, owned: true, hint: '첫 주문 납품 보상' },
-  { id: 'classic-randonneur', name: '클래식 랜도너', category: '로드', grade: '중급', color: P.green, owned: true, hint: '주문 납품 보상' },
-  { id: 'touring-road', name: '투어링 로드', category: '로드', grade: '입문', color: P.leaf, owned: false, hint: '주문 납품 보상으로 발견' },
-  { id: 'aero-sprinter', name: '에어로 스프린터', category: '로드', grade: '고급', color: P.gold, owned: false, hint: '고급 주문 보상으로 발견' },
-  { id: 'dream-machine', name: '드림 머신', category: '로드', grade: '드림', color: P.gold, owned: false, hint: '드림 등급 승급 보상' },
-  { id: 'trail-mtb', name: '트레일 MTB', category: 'MTB', grade: '중급', color: P.green, owned: false, hint: 'NEXT GOAL · 주문 2건 남음' },
-  { id: 'hardtail-mtb', name: '하드테일 MTB', category: 'MTB', grade: '입문', color: P.blue, owned: true, hint: '주문 납품 보상' },
-  { id: 'xc-mtb', name: '크로스컨트리 MTB', category: 'MTB', grade: '중급', color: P.red, owned: true, hint: '주문 납품 보상' },
-  { id: 'fat-bike', name: '팻바이크', category: 'MTB', grade: '중급', color: P.wood, owned: false, hint: '겨울 주문 보상으로 발견' },
-  { id: 'enduro-mtb', name: '엔듀로 MTB', category: 'MTB', grade: '고급', color: P.blue, owned: false, hint: '고급 주문 보상으로 발견' },
-  { id: 'downhill-mtb', name: '다운힐 MTB', category: 'MTB', grade: '고급', color: P.red, owned: false, hint: '고급 주문 보상으로 발견' },
-  { id: 'gravel-explorer', name: '그래블 익스플로러', category: '그래블', grade: '중급', color: P.gold, owned: true, hint: '주문 납품 보상' },
-  { id: 'allroad-gravel', name: '올로드 그래블', category: '그래블', grade: '입문', color: P.green, owned: true, hint: '주문 납품 보상' },
-  { id: 'singlespeed-gravel', name: '싱글스피드 그래블', category: '그래블', grade: '입문', color: P.blue, owned: false, hint: '주문 납품 보상으로 발견' },
-  { id: 'bikepacking-gravel', name: '백패킹 그래블', category: '그래블', grade: '중급', color: P.leaf, owned: false, hint: '연속 주문 보상으로 발견' },
-  { id: 'adventure-gravel', name: '어드벤처 그래블', category: '그래블', grade: '고급', color: P.wood, owned: false, hint: '고급 주문 보상으로 발견' },
-  { id: 'expedition-gravel', name: '익스페디션 그래블', category: '그래블', grade: '드림', color: P.red, owned: false, hint: '드림 등급 승급 보상' },
-  { id: 'city-mini', name: '시티 미니벨로', category: '미니벨로', grade: '입문', color: P.red, owned: true, hint: '주문 납품 보상' },
-  { id: 'folding-mini', name: '폴딩 미니벨로', category: '미니벨로', grade: '입문', color: P.gold, owned: false, hint: '주문 납품 보상으로 발견' },
-  { id: 'cargo-mini', name: '카고 미니벨로', category: '미니벨로', grade: '중급', color: P.green, owned: false, hint: '배달 주문 보상으로 발견' },
-  { id: 'classic-mini', name: '클래식 미니벨로', category: '미니벨로', grade: '중급', color: P.blue, owned: false, hint: '주문 납품 보상으로 발견' },
-  { id: 'tour-mini', name: '투어 미니벨로', category: '미니벨로', grade: '고급', color: P.leaf, owned: false, hint: '고급 주문 보상으로 발견' },
-  { id: 'dream-mini', name: '드림 미니벨로', category: '미니벨로', grade: '드림', color: P.gold, owned: false, hint: '드림 등급 승급 보상' },
-];
+// 카탈로그 데이터는 bike-catalog 단일 출처를 사용합니다.
+// 독립 데모는 샘플 보유 상태(8/24 · 다음 목표 TRAIL MTB), 릴리스 통합은 hooks.ownedBikeIds로 대체합니다.
+const DESIGN_BIKES: DesignBike[] = CATALOG_BIKES.map(({ sampleOwned, ...bike }) => ({ ...bike, owned: sampleOwned }));
 
 const GRADE_COLOR: Record<DesignBike['grade'], number> = { 입문: P.leaf, 중급: P.blue, 고급: P.gold, 드림: P.red };
 
@@ -68,6 +73,13 @@ class BikeCollectionDesignScene extends Phaser.Scene {
   private mode: BikeCollectionDesignMode;
   private view: 'collection' | 'home' = 'collection';
   private bikes = DESIGN_BIKES.map((bike) => ({ ...bike }));
+  // 아직 도감에서 확인하지 않은 신규 등록 자전거 (#201·#221) — 확인 시 onBikeSeen으로 컨트롤러에 알림
+  private newIds = new Set<string>();
+  // 도감 등록(제작 가능) 자전거와 자전거별 이해도 (#221) — 독립 데모는 샘플 보유와 동일하게 취급
+  private registeredIds = new Set<string>();
+  private understanding: Record<string, number> = {};
+  // 제작 중 자전거별 장착 부품 (#222)
+  private craftParts: Record<string, CraftPartType[]> = {};
   private selected = 'trail-mtb';
   private coins = 2480;
   private toast: string;
@@ -78,6 +90,18 @@ class BikeCollectionDesignScene extends Phaser.Scene {
     super('bike-collection-design');
     this.mode = mode;
     this.coins = hooks.coins ?? this.coins;
+    // 실제 진행 데이터 모드: 보유·전시 상태를 컨트롤러가 넘긴 진행 데이터로 덮어씁니다.
+    if (hooks.ownedBikeIds) {
+      const owned = new Set(hooks.ownedBikeIds);
+      this.bikes.forEach((bike) => { bike.owned = owned.has(bike.id); });
+      this.showcaseSlots = (hooks.showcaseSlots ?? this.showcaseSlots)
+        .map((slot) => (slot && owned.has(slot) ? slot : null));
+    }
+    this.newIds = new Set(hooks.newBikeIds ?? []);
+    this.registeredIds = new Set(hooks.registeredBikeIds ?? hooks.ownedBikeIds ?? this.bikes.filter((bike) => bike.owned).map((bike) => bike.id));
+    this.understanding = { ...(hooks.understandingByBikeId ?? {}) };
+    this.craftParts = Object.fromEntries(Object.entries(hooks.craftPartsByBikeId ?? {}).map(([id, parts]) => [id, [...parts]]));
+    if (hooks.dreamStats) this.dreamStats = { ...hooks.dreamStats };
     if (hooks.initialBikeId && this.bikes.some((bike) => bike.id === hooks.initialBikeId)) this.selected = hooks.initialBikeId;
     this.toast =
       mode === 'warm-catalog' ? '도감 칸을 눌러 자전거 정보를 확인해 보세요.'
@@ -182,11 +206,22 @@ class BikeCollectionDesignScene extends Phaser.Scene {
         .setStrokeStyle(3, isSelected ? P.gold : isNextGoal ? P.red : bike.owned ? P.wood : 0x4a3328)
         .setDepth(isSelected ? 6 : 5)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => { this.selected = bike.id; this.render(); });
+        .on('pointerdown', () => {
+          this.selected = bike.id;
+          // 신규 해금 자전거를 확인하면 NEW 표시를 해제하고 컨트롤러에 알린다
+          if (this.newIds.delete(bike.id)) this.hooks.onBikeSeen?.(bike.id);
+          this.render();
+        });
+      // 도감 상태 3단계 (#221): 완성(보유) → 컬러, 등록(제작 가능) → 컬러+제작 태그, 미등록 → 실루엣+이해도
+      const isRegistered = bike.owned || this.registeredIds.has(bike.id);
+      const progress = this.understanding[bike.id] ?? (isRegistered ? 100 : 0);
+      if (isRegistered && this.newIds.has(bike.id)) {
+        this.add.rectangle(x + 26, y - 24, 34, 14, P.red).setStrokeStyle(2, P.ink).setDepth(8);
+        this.label(x + 26, y - 24, 'NEW', 8, '#fff1c6', true).setOrigin(.5).setDepth(9);
+      }
       this.add.circle(x - 33, y - 24, 4, GRADE_COLOR[bike.grade]).setStrokeStyle(1, P.ink).setDepth(7);
-      // 보유: 카테고리별 픽셀 스프라이트, 미보유: 실루엣 표시.
       // 24칸을 동시에 그리므로 Graphics 대신 텍스처 캐시 경로(addPixelBikeImage)를 사용합니다.
-      if (bike.owned) {
+      if (isRegistered) {
         addPixelBikeImage(this, x, y + 4, 1, {
           category: bikeCategoryFromKorean(bike.category), colorway: makeWarmColorway(bike.color), depth: 7,
         });
@@ -195,16 +230,37 @@ class BikeCollectionDesignScene extends Phaser.Scene {
           category: bikeCategoryFromKorean(bike.category), silhouette: { body: 0x8a6a52, ink: 0x4a3328 }, depth: 7,
         });
       }
-      if (!bike.owned) this.label(x, y + 21, isNextGoal ? 'NEXT' : '?', 9, isNextGoal ? '#f4b84a' : '#c9a98c', true).setOrigin(.5).setDepth(7);
+      if (!bike.owned) {
+        const cellTag = isRegistered ? '제작 가능' : progress > 0 ? `${progress}%` : isNextGoal ? 'NEXT' : '?';
+        const cellColor = isRegistered ? '#a16028' : progress > 0 ? '#3f7851' : isNextGoal ? '#f4b84a' : '#c9a98c';
+        this.label(x, y + 21, cellTag, isRegistered ? 8 : 9, cellColor, true).setOrigin(.5).setDepth(7);
+      }
     });
 
     const target = this.bikes.find((bike) => bike.id === this.selected)!;
+    const targetRegistered = target.owned || this.registeredIds.has(target.id);
+    const targetProgress = this.understanding[target.id] ?? (targetRegistered ? 100 : 0);
     this.pixelRect(195, 682, 366, 74, P.paper, P.ink, 8);
     this.label(28, 656, `${target.category} · ${target.grade}`, 9, '#8e5136', true).setDepth(9);
-    this.label(28, 671, target.owned ? target.name : `??? ${target.name}`, 14, target.owned ? '#3b2531' : '#7b5140', true).setDepth(9);
-    this.label(28, 693, target.owned ? `보유 중 · ${target.hint}` : target.hint, 10, target.owned ? '#3f7851' : '#a14a38', true).setDepth(9);
+    this.label(28, 671, targetRegistered ? target.name : `??? ${target.name}`, 14, targetRegistered ? '#3b2531' : '#7b5140', true).setDepth(9);
+    // 상태별 안내 (#221): 완성=보유 중, 등록=제작 가능, 미등록=이해도 진행 표시 (실데이터 모드)
+    const targetStatus = target.owned
+      ? `보유 중 · ${target.hint}`
+      : targetRegistered
+        ? '도감 등록 · Garage에서 부품을 조립해 제작할 수 있습니다'
+        : this.hooks.ownedBikeIds
+          ? `이해도 ${targetProgress}% · 주문 납품으로 학습하세요`
+          : target.hint;
+    this.label(28, 693, targetStatus, 10, target.owned ? '#3f7851' : targetRegistered ? '#a16028' : '#a14a38', true).setDepth(9);
     if (target.owned) {
       this.button(322, 682, 108, 42, '상세·성장\n보기', () => {
+        this.hooks.onSfx?.('tap');
+        if (this.hooks.onBikeDetail) this.hooks.onBikeDetail(target.id);
+        else { this.mode = 'warm-dream-growth'; this.render(); }
+      }, true);
+    } else if (targetRegistered) {
+      // 등록·미완성: 제작 모드로 진입 (#222)
+      this.button(322, 682, 108, 42, '제작하기', () => {
         this.hooks.onSfx?.('tap');
         if (this.hooks.onBikeDetail) this.hooks.onBikeDetail(target.id);
         else { this.mode = 'warm-dream-growth'; this.render(); }
@@ -215,11 +271,14 @@ class BikeCollectionDesignScene extends Phaser.Scene {
         if (this.hooks.onBikeDetail) this.hooks.onBikeDetail(target.id);
         else { this.mode = 'warm-dream-growth'; this.render(); }
       });
-      this.button(322, 700, 108, 28, '획득 미리보기', () => {
-        target.owned = true;
-        this.hooks.onSfx?.('reward');
-        this.notify(`${target.name} 획득! 도감 ${this.ownedCount()} / 24 달성.`);
-      });
+      // 실제 진행 데이터 모드에서는 주문 납품으로만 해금할 수 있으므로 획득 미리보기를 제공하지 않는다 (#201)
+      if (!this.hooks.ownedBikeIds) {
+        this.button(322, 700, 108, 28, '획득 미리보기', () => {
+          target.owned = true;
+          this.hooks.onSfx?.('reward');
+          this.notify(`${target.name} 획득! 도감 ${this.ownedCount()} / 24 달성.`);
+        });
+      }
     }
   }
 
@@ -256,11 +315,12 @@ class BikeCollectionDesignScene extends Phaser.Scene {
           const chosen = this.bikes.find((item) => item.id === this.selected);
           if (!chosen?.owned) { this.notify('보관 선반에서 보유 자전거를 먼저 선택하세요.'); return; }
           this.showcaseSlots[index] = chosen.id;
+          this.hooks.onShowcaseChange?.([...this.showcaseSlots]);
           this.notify(`${chosen.name}을(를) ${stand.tag}에 전시했습니다.`);
         });
     });
 
-    this.label(24, 548, '보관 선반 · 보유 8종', 11, '#5d3b34', true);
+    this.label(24, 548, `보관 선반 · 보유 ${this.ownedCount()}종`, 11, '#5d3b34', true);
     this.bikes.filter((bike) => bike.owned).forEach((bike, index) => {
       const x = 60 + (index % 4) * 90;
       const y = 602 + Math.floor(index / 4) * 70;
@@ -277,8 +337,28 @@ class BikeCollectionDesignScene extends Phaser.Scene {
     });
   }
 
-  // C안: 한 대 집중 성장 + 파츠 강화
+  // C안: 한 대 집중 성장 + 파츠 강화. 등록·미완성 자전거는 제작 모드로 전환 (#222)
   private renderDreamGrowth() {
+    const selectedBike = this.bikes.find((bike) => bike.id === this.selected);
+    if (this.hooks.ownedBikeIds && selectedBike && !selectedBike.owned && this.registeredIds.has(selectedBike.id)) {
+      this.renderCrafting(selectedBike);
+      return;
+    }
+    // 미등록 자전거는 성장·제작 불가: 이해도 학습 안내만 표시 (#223)
+    if (this.hooks.ownedBikeIds && selectedBike && !selectedBike.owned && !this.registeredIds.has(selectedBike.id)) {
+      const progress = this.understanding[selectedBike.id] ?? 0;
+      this.label(24, 130, 'LOCKED BIKE', 8, '#6e473b', true);
+      this.label(24, 144, `??? ${selectedBike.name}`, 15, '#7b5140', true);
+      this.add.ellipse(195, 344, 220, 28, 0x6e473b, .28).setDepth(1);
+      addPixelBikeImage(this, 195, 300, 3, {
+        category: bikeCategoryFromKorean(selectedBike.category), silhouette: { body: 0x8a6a52, ink: 0x4a3328 }, depth: 2,
+      });
+      this.label(195, 400, `이해도 ${progress}%`, 14, '#3f7851', true).setOrigin(.5);
+      this.add.rectangle(24, 428, 342, 10, P.darkWood).setOrigin(0, .5);
+      if (progress > 0) this.add.rectangle(24, 428, 342 * progress / 100, 10, P.green).setOrigin(0, .5);
+      this.label(195, 456, '주문을 납품해 이해도 100%를 달성하면 도감에 등록됩니다', 9, '#5d3b34', true).setOrigin(.5);
+      return;
+    }
     const total = Object.values(this.dreamStats).reduce((sum, value) => sum + value, 0);
     const stage = total >= 10 ? 3 : total >= 7 ? 2 : 1;
     const gradeName = stage === 3 ? '드림' : stage === 2 ? '고급' : '중급';
@@ -309,7 +389,7 @@ class BikeCollectionDesignScene extends Phaser.Scene {
     (Object.keys(this.dreamStats) as Array<keyof typeof this.dreamStats>).forEach((key, index) => {
       const level = this.dreamStats[key];
       const y = 450 + index * 78;
-      const cost = 350 * level;
+      const cost = dreamUpgradeCost(level); // 강화 비용 규칙 단일 출처 (#203)
       this.pixelRect(195, y, 350, 64, 0xffe6a8, P.wood, 5);
       this.label(40, y - 22, key, 12, '#3b2531', true).setDepth(6);
       for (let dot = 0; dot < 4; dot++) {
@@ -317,6 +397,25 @@ class BikeCollectionDesignScene extends Phaser.Scene {
       }
       this.label(160, y + 5, `Lv.${level} / 4`, 9, level === 4 ? '#a16028' : '#7b5140', true).setDepth(6);
       if (level < 4) this.button(300, y, 104, 40, `강화 ${cost}`, () => {
+        // 통합 모드: 코인 차감·강화 반영·저장을 컨트롤러가 하나의 처리로 수행하고 결과만 표시한다 (#203)
+        if (this.hooks.onDreamUpgrade) {
+          const result = this.hooks.onDreamUpgrade(key);
+          this.coins = result.coins;
+          this.dreamStats = { ...result.stats };
+          if (!result.ok) {
+            this.hooks.onSfx?.('error');
+            this.notify(result.reason === 'max' ? '이미 최대 단계입니다.'
+              : result.reason === 'not-crafted' ? '부품 제작을 완료해 자전거를 완성한 뒤 성장할 수 있습니다.'
+              : '코인이 부족합니다. 주문을 완료해 급여를 받으세요.');
+            return;
+          }
+          this.hooks.onSfx?.('reward');
+          const nextTotal = Object.values(this.dreamStats).reduce((sum, value) => sum + value, 0);
+          this.notify(result.stageUp && nextTotal >= 10 ? '드림 등급 달성! 나만의 드림 바이크 완성.'
+            : result.stageUp ? '고급 등급 달성! 외형 강조가 추가됐습니다.'
+            : `${key} 강화 완료 · 남은 코인 ${this.coins.toLocaleString()}`);
+          return;
+        }
         if (this.coins < cost) { this.hooks.onSfx?.('error'); this.notify('코인이 부족합니다. 주문을 완료해 급여를 받으세요.'); return; }
         this.coins -= cost;
         this.hooks.onCoinsChange?.(this.coins);
@@ -329,6 +428,68 @@ class BikeCollectionDesignScene extends Phaser.Scene {
     });
 
     this.label(195, 696, `COLLECTION ${this.ownedCount()} / 24 · A 도감과 B 전시로 언제든 이동할 수 있습니다`, 8, '#7b5140', true).setOrigin(.5);
+  }
+
+  // 제작 모드 (#222): 급여로 부품을 하나씩 장착해 자전거를 완성한다
+  private renderCrafting(target: DesignBike) {
+    const installed = this.craftParts[target.id] ?? [];
+    const isInstalled = (type: CraftPartType) => installed.includes(type);
+
+    this.label(24, 130, 'BIKE CRAFTING', 8, '#6e473b', true);
+    this.label(24, 144, `${target.name} 만들기`, 15, '#3b2531', true);
+    this.pixelRect(340, 150, 84, 30, 0xffe6a8, P.wood, 5);
+    this.label(340, 150, `조립 ${installed.length} / ${CRAFT_PARTS.length}`, 10, '#5d3b34', true).setOrigin(.5).setDepth(6);
+
+    // 미장착 부품은 반투명으로 표시해 무엇이 비었는지 보여준다
+    this.add.ellipse(195, 344, 220, 28, 0x6e473b, .28).setDepth(1);
+    drawPixelBike(this, 195, 300, 3, {
+      category: bikeCategoryFromKorean(target.category),
+      colorway: makeWarmColorway(target.color),
+      depth: 2,
+      partAlpha: {
+        frame: isInstalled('frame') ? 1 : 0.3,
+        wheel: isInstalled('wheel') ? 1 : 0.3,
+        drivetrain: isInstalled('drivetrain') ? 1 : 0.3,
+        handlebar: isInstalled('handlebar') ? 1 : 0.3,
+      },
+    });
+
+    this.label(24, 372, `완성까지 부품 ${CRAFT_PARTS.length - installed.length}개 · 급여로 장착하세요`, 10, '#5d3b34', true);
+    this.add.rectangle(24, 394, 342, 10, P.darkWood).setOrigin(0, .5);
+    if (installed.length > 0) this.add.rectangle(24, 394, 342 * installed.length / CRAFT_PARTS.length, 10, P.green).setOrigin(0, .5);
+
+    CRAFT_PARTS.forEach((part, index) => {
+      const y = 442 + index * 66;
+      const done = isInstalled(part.type);
+      this.pixelRect(195, y, 350, 56, done ? 0xdff0d0 : 0xffe6a8, P.wood, 5);
+      this.label(40, y - 18, part.name, 12, '#3b2531', true).setDepth(6);
+      this.label(40, y + 2, done ? '장착 완료' : `비용 ${part.cost.toLocaleString()}코인`, 9, done ? '#3f7851' : '#7b5140', true).setDepth(6);
+      if (done) {
+        this.label(330, y, '✓', 16, '#3f7851', true).setOrigin(.5).setDepth(6);
+        return;
+      }
+      this.button(300, y, 104, 40, `장착 ${part.cost}`, () => {
+        if (!this.hooks.onCraftPart) return;
+        const result = this.hooks.onCraftPart(target.id, part.type);
+        this.coins = result.coins;
+        this.craftParts[target.id] = [...result.installedParts];
+        if (!result.ok) {
+          this.hooks.onSfx?.('error');
+          this.notify(result.reason === 'coins' ? '코인이 부족합니다. 주문을 완료해 급여를 받으세요.' : '지금은 장착할 수 없습니다.');
+          return;
+        }
+        this.hooks.onSfx?.('reward');
+        if (result.completed) {
+          // 완성 승격: 보유 상태로 바꾸고 성장 화면으로 전환된다
+          target.owned = true;
+          this.notify(`${target.name} 완성! Garage에 보유되어 전시·성장이 가능합니다.`);
+          return;
+        }
+        this.notify(`${part.name} 장착 완료 · 남은 코인 ${this.coins.toLocaleString()}`);
+      });
+    });
+
+    this.label(195, 700, '부품 4종을 모두 장착하면 완성되어 전시·성장이 열립니다', 8, '#7b5140', true).setOrigin(.5);
   }
 
   // 홈 A안 축약 프리뷰: 자전거 탭 → 수집 화면 진입 흐름만 검증
