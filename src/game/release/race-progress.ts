@@ -34,7 +34,16 @@ export function simulateRace(input: { seed: number; playerName?: string; playerS
   let tick = 0; while (tick < 240 && runners.some((r) => r.finish === null)) { tick++; runners.forEach((r) => { if (r.finish !== null) { r.timeline.push(1); return; } const step = r.speedScore * segmentAt(r.distance / meta.distanceMeters).speedFactor * (1 + (rnd() * 2 - 1) * 0.09); const before = r.distance; r.distance = Math.min(meta.distanceMeters, r.distance + step); if (r.distance >= meta.distanceMeters) { r.finish = Math.round((tick - 1 + (meta.distanceMeters - before) / step) * tickMs); r.timeline.push(1); } else r.timeline.push(r.distance / meta.distanceMeters); }); }
   runners.forEach((r) => { if (r.finish === null) r.finish = tick * tickMs; }); const ordered = [...runners].sort((a, b) => a.finish! - b.finish!); const ranks = new Map(ordered.map((r, i) => [r.id, i + 1])); const racers = runners.map((r) => ({ id: r.id, name: r.name, isPlayer: r.isPlayer, category: r.category, frameColor: r.frameColor, speedScore: r.speedScore, rank: ranks.get(r.id)!, finishTimeMs: r.finish!, timeline: r.timeline })); const player = racers[0]; return { meta, seed: input.seed, tickMs, totalTicks: tick, racers, playerRank: player.rank, playerTimeMs: player.finishTimeMs };
 }
-export function progressAt(timeline: number[], tick: number) { if (tick <= 0) return timeline[0] ?? 0; const i = Math.floor(tick); if (i >= timeline.length - 1) return timeline[timeline.length - 1] ?? 1; const f = tick - i; return timeline[i] + (timeline[i + 1] - timeline[i]) * f; }
+export function progressAt(timeline: number[], tick: number, finishTick?: number) {
+  if (tick <= 0) return timeline[0] ?? 0;
+  if (finishTick !== undefined && tick >= finishTick) return 1;
+  const i = Math.floor(tick);
+  if (i >= timeline.length - 1) return timeline[timeline.length - 1] ?? 1;
+  // 마지막 틱은 실제 결승 시각까지 보간해 HUD 시계와 결승 통과를 맞춥니다.
+  const endTick = finishTick !== undefined && finishTick > i && finishTick < i + 1 ? finishTick : i + 1;
+  const f = (tick - i) / (endTick - i);
+  return timeline[i] + (timeline[i + 1] - timeline[i]) * f;
+}
 export function raceRewardForRank(rank: number, meta = RIVERSIDE_RACE) { return meta.rankRewards[rank - 1] ?? meta.finishReward; }
 export function applyRaceReward(coins: number, rank: number, meta = RIVERSIDE_RACE) { const reward = raceRewardForRank(rank, meta); return { coins: coins + reward, reward, rank }; }
 export function formatRaceTime(ms: number) { const s = ms / 1000; const m = Math.floor(s / 60); return `${String(m).padStart(2, '0')}:${(s - m * 60).toFixed(1).padStart(4, '0')}`; }
