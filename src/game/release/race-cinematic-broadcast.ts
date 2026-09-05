@@ -4,7 +4,7 @@ import type { BikeStats } from './meta-progress';
 import { RIVERSIDE_ENDURANCE_RACE, applyRaceEntry, applyRaceReward, formatRaceTime, progressAt, simulateRace, type RaceResult } from './race-progress';
 
 export type RaceCinematicHooks = { initialCoins?: number; stats?: BikeStats; dayNumber?: number; seed?: number; onSettled?: (value: { rank: number; reward: number; coins: number }) => void };
-const META = RIVERSIDE_ENDURANCE_RACE; const INK = 0x3b2531; const CREAM = 0xfff1c6; const RED = 0xc95746; const GREEN = 0x5e9a67; const GOLD = 0xf4b84a; const WOOD = 0xa9683f; const DARK = 0x573044;
+const META = RIVERSIDE_ENDURANCE_RACE; const INK = 0x3b2531; const CREAM = 0xfff1c6; const RED = 0xc95746; const GREEN = 0x5e9a67; const GOLD = 0xf4b84a; const WOOD = 0xa9683f;
 type Visual = { container: Phaser.GameObjects.Container; wheels: Phaser.GameObjects.Arc[]; racer: RaceResult['racers'][number]; progress: number; last: number; pedal: Phaser.GameObjects.Rectangle };
 class RaceE extends Phaser.Scene {
   private coins = 0; private result?: RaceResult; private visuals: Visual[] = []; private playMs = 0; private speed = 1; private racing = false;
