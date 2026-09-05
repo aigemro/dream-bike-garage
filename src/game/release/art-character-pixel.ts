@@ -1,6 +1,7 @@
-import Phaser from 'phaser';
+import type Phaser from 'phaser';
 
 // 캐릭터 A안 세밀화 모듈.
+// Phaser는 타입으로만 참조하므로 픽셀맵·팔레트는 node(Vitest)에서도 import할 수 있습니다.
 // 기존의 단순 도형 조합 대신 픽셀 매트릭스(문자 지도)로 스프라이트를 정의해
 // 역할별 의상 디테일(앞치마·공구 벨트 / 조끼·열쇠 배지 / 캡·주문 카드)과
 // 2톤 음영, 감정별 눈썹·눈·입 변화를 표현합니다.
