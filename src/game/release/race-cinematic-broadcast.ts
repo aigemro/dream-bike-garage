@@ -38,6 +38,10 @@ export type RaceCinematicHooks = {
   stats?: BikeStats;
   dayNumber?: number;
   seed?: number;
+  playerBike?: { name: string; category: BikeCategory; frameColor: number };
+  entryFeePaid?: boolean;
+  onEntered?: (value: { coins: number; entryFee: number }) => void;
+  onExit?: () => void;
   onSettled?: (value: { rank: number; reward: number; coins: number }) => void;
 };
 
@@ -165,6 +169,10 @@ export class RaceCinematicScene extends Phaser.Scene {
     return this.hooks.dayNumber ?? 5;
   }
 
+  private playerBike() {
+    return this.hooks.playerBike ?? { name: '드림 로드', category: 'road' as BikeCategory, frameColor: RED };
+  }
+
   // ─── 참가 화면 ────────────────────────────────────────────────────
 
   private buildEntry() {
@@ -177,11 +185,12 @@ export class RaceCinematicScene extends Phaser.Scene {
     this.add.rectangle(WIDTH / 2, 230, 330, 190, SKY).setStrokeStyle(4, INK);
     this.add.rectangle(WIDTH / 2, 296, 322, 52, ROAD);
     this.add.rectangle(WIDTH / 2, 271, 322, 4, ROAD_EDGE);
-    const preview = new RacerView(this, this.textures2!, { category: 'road', role: '정비사', frameColor: RED });
+    const bike = this.playerBike();
+    const preview = new RacerView(this, this.textures2!, { category: bike.category, role: '정비사', frameColor: bike.frameColor });
     const previewMotion = createMotionState(Math.PI * 0.35, 'seated');
     preview.update(previewMotion);
     preview.setPosition(WIDTH / 2 - 8, 282);
-    this.text(WIDTH / 2, 338, '나 · 드림 로드 · 정비사', 10, INK_TEXT).setOrigin(0.5).setBackgroundColor('#fff1c6').setPadding(6, 3, 6, 3);
+    this.text(WIDTH / 2, 338, `나 · ${bike.name} · 정비사`, 10, INK_TEXT).setOrigin(0.5).setBackgroundColor('#fff1c6').setPadding(6, 3, 6, 3);
 
     this.text(WIDTH / 2, 392, '3,000m 리버사이드 3K 챌린지', 20).setOrigin(0.5);
     this.text(WIDTH / 2, 426, `참가비 ${META.entryFee} 코인 · 8명 출전`, 11).setOrigin(0.5);
@@ -199,6 +208,10 @@ export class RaceCinematicScene extends Phaser.Scene {
     });
     const coinText = this.text(WIDTH / 2, 508, `보유 코인 ${this.coins.toLocaleString()}`, 12).setOrigin(0.5);
 
+    const back = this.add.rectangle(58, 60, 82, 34, PALE_GOLD).setStrokeStyle(3, INK).setInteractive({ useHandCursor: true });
+    this.text(58, 60, '← Garage', 10, INK_TEXT).setOrigin(0.5);
+    back.on('pointerdown', () => this.hooks.onExit?.());
+
     const button = this.add.rectangle(WIDTH / 2, 566, 300, 52, GREEN).setStrokeStyle(4, INK).setInteractive({ useHandCursor: true });
     this.text(WIDTH / 2, 566, '레이스 시작', 16).setOrigin(0.5);
     const message = this.text(WIDTH / 2, 610, '카메라 조작 없이 자동 중계를 관람합니다.', 10).setOrigin(0.5);
@@ -209,18 +222,21 @@ export class RaceCinematicScene extends Phaser.Scene {
 
     button.on('pointerdown', () => {
       if (this.phase !== 'entry') return;
-      const entry = applyRaceEntry(this.coins, META);
+      const entry = this.hooks.entryFeePaid
+        ? { ok: true as const, coins: this.coins, entryFee: META.entryFee }
+        : applyRaceEntry(this.coins, META);
       if (!entry.ok) {
         message.setText(`코인이 부족합니다. 보유 ${entry.coins} / 참가비 ${entry.entryFee}`);
         return;
       }
       this.coins = entry.coins;
+      if (!this.hooks.entryFeePaid) this.hooks.onEntered?.({ coins: entry.coins, entryFee: entry.entryFee });
       coinText.setText(`보유 코인 ${this.coins.toLocaleString()}`);
       this.result = simulateRace({
         seed: this.hooks.seed ?? 20260903,
         playerStats: this.playerStats(),
-        playerCategory: 'road',
-        playerFrameColor: RED,
+        playerCategory: bike.category,
+        playerFrameColor: bike.frameColor,
         meta: META,
       });
       this.startRace();
@@ -527,7 +543,7 @@ export class RaceCinematicScene extends Phaser.Scene {
       const y = 208 + index * 30;
       this.add.rectangle(WIDTH / 2, y, 300, 24, racer.isPlayer ? 0xffe6a8 : PALE_GOLD, racer.isPlayer ? 1 : 0.7).setStrokeStyle(2, racer.isPlayer ? WOOD_LINE : 0xd9c197);
       this.text(58, y, `${racer.rank}위`, 11, racer.rank === 1 ? '#b8761a' : INK_TEXT).setOrigin(0, 0.5);
-      this.text(96, y, racer.isPlayer ? '나 · 드림 로드' : racer.name, 11, INK_TEXT).setOrigin(0, 0.5);
+      this.text(96, y, racer.isPlayer ? `나 · ${this.playerBike().name}` : racer.name, 11, INK_TEXT).setOrigin(0, 0.5);
       this.text(330, y, formatRaceTime(racer.finishTimeMs), 11, MUTED_TEXT).setOrigin(1, 0.5);
     });
 
