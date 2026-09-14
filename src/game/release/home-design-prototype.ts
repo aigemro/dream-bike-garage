@@ -47,11 +47,20 @@ export type HomeDesignHooks = {
   dayNumber?: number;
   dayRemainingMs?: number;
   dayStatusLabel?: string;
+  race?: {
+    dayNumber: number;
+    heldEveryDays: number;
+    daysUntil: number;
+    entryFee: number;
+    available: boolean;
+    completed: boolean;
+  };
   onPlay?: () => void;
   onCollection?: () => void;
   onShowcase?: () => void;
   onProfile?: () => void;
   onSettings?: () => void;
+  onRace?: () => void;
   // 제작 중 자전거 만들기 진입 (#222)
   onCraft?: (bikeId: string) => void;
   // Garage 대표 자전거 클릭 → 성장 화면 진입 (#223)
@@ -117,6 +126,14 @@ class WarmPixelGarageScene extends Phaser.Scene {
     if (!progress) {
       this.button(38, 205, 54, 48, 'EVENT\n3', () => this.notify('이벤트 준비 중'));
       this.button(38, 263, 54, 48, 'RANK\n#18', () => this.notify('랭킹 준비 중'));
+    } else if (this.hooks.race) {
+      const race = this.hooks.race;
+      const label = race.completed ? '대회\n완료' : race.available ? 'RACE\nGO!' : `대회\nD-${race.daysUntil}`;
+      this.button(38, 205, 54, 48, label, () => {
+        this.hooks.onSfx?.('tap');
+        if (race.available) this.hooks.onRace?.();
+        else this.notify(race.completed ? '오늘 대회는 이미 완주했습니다.' : `대회까지 ${race.daysUntil}일 남았습니다.`);
+      }, race.available);
     }
     this.button(352, 205, 54, 48, '전시\n보기', () => {
       this.hooks.onSfx?.('tap');
@@ -176,14 +193,33 @@ class WarmPixelGarageScene extends Phaser.Scene {
     if (growthPercent > 0) this.add.rectangle(89 + 212 * growthPercent / 100 / 2, 526, 212 * growthPercent / 100, 10, P.green).setDepth(14);
     this.label(195, 544, `Garage 성장 ${growthPercent}%`, 9, '#5d3b34', true).setOrigin(.5).setDepth(14);
 
-    this.pixelRect(195, 592, 310, 50, 0xfff1c6, P.wood, 14);
-    this.label(195, 592, this.toast, 10, '#5d3b34', true).setOrigin(.5).setDepth(15);
+    if (this.hooks.race) this.renderRaceCalendar(this.hooks.race);
+    const toastY = this.hooks.race ? 660 : 592;
+    this.pixelRect(195, toastY, 310, this.hooks.race ? 36 : 50, 0xfff1c6, P.wood, 14);
+    this.label(195, toastY, this.toast, 9, '#5d3b34', true).setOrigin(.5).setDepth(15);
 
     this.pixelRect(195, 744, 366, 82, P.wood, P.ink, 18);
     this.button(67, 741, 80, 48, progress ? '프로필' : '프로필\nLv.12', () => { this.hooks.onSfx?.('tap'); this.hooks.onProfile ? this.hooks.onProfile() : this.notify('견습 정비사 프로필'); });
     this.button(195, 738, 150, 58, '▶  PLAY', () => { this.hooks.onSfx?.('tap'); if (this.hooks.onPlay) this.hooks.onPlay(); else { this.playing = true; this.render(); } }, true);
     this.button(323, 741, 80, 48, progress ? `자전거\n${progress.ownedCount}/${progress.catalogSize}` : '자전거\n8/24', () => { this.hooks.onSfx?.('tap'); this.hooks.onCollection ? this.hooks.onCollection() : this.notify('자전거 도감'); });
     this.label(195, 793, 'DREAM BIKE GARAGE · WARM PIXEL HOME', 8, '#fff1c6', true).setOrigin(.5).setDepth(22);
+  }
+
+  private renderRaceCalendar(race: NonNullable<HomeDesignHooks['race']>) {
+    this.pixelRect(195, 590, 310, 76, P.darkWood, P.ink, 14);
+    const cycleStart = race.dayNumber - ((race.dayNumber - 1) % race.heldEveryDays);
+    this.label(52, 562, race.available ? '오늘 리버사이드 3K 개최!' : `NEXT RACE · D-${race.daysUntil}`, 9, '#f6d995', true).setDepth(15);
+    for (let index = 0; index < race.heldEveryDays; index += 1) {
+      const day = cycleStart + index;
+      const raceDay = index === race.heldEveryDays - 1;
+      const today = day === race.dayNumber;
+      const x = 91 + index * 52;
+      this.add.rectangle(x, 606, 42, 34, today ? P.gold : raceDay ? P.red : P.paper)
+        .setStrokeStyle(today ? 3 : 2, P.ink).setDepth(15);
+      this.label(x, 600, `D${day}`, 9, today ? '#3b2531' : raceDay ? '#fff1c6' : '#795044', true).setOrigin(.5).setDepth(16);
+      this.label(x, 614, raceDay ? '대회' : day < race.dayNumber ? '완료' : '영업', 7, raceDay ? '#fff1c6' : '#795044', true).setOrigin(.5).setDepth(16);
+    }
+    this.label(195, 635, `참가비 ${race.entryFee.toLocaleString()} 코인 · 시네마틱 스포츠 중계`, 8, '#fff1c6', true).setOrigin(.5).setDepth(16);
   }
 
   private renderWorkshop() {
