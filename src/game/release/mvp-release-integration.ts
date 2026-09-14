@@ -35,10 +35,13 @@ import {
 } from './meta-progress';
 import { CATALOG_SIZE, catalogBikeById } from './bike-catalog';
 import { ORDERS } from './merge-prototype';
+import { startRaceCinematicBroadcast } from './race-cinematic-broadcast';
+import { RIVERSIDE_ENDURANCE_RACE, daysUntilRace, isRaceDay } from './race-progress';
+import { bikeCategoryFromKorean } from './bike-pixel-sprite';
 
-type ReleaseScreen = 'title' | 'home' | 'guide' | 'game' | 'reward' | 'catalog' | 'showcase' | 'dream' | 'profile' | 'settings';
+type ReleaseScreen = 'title' | 'home' | 'guide' | 'game' | 'reward' | 'catalog' | 'showcase' | 'dream' | 'profile' | 'settings' | 'race';
 type ReleaseState = {
-  version: 2;
+  version: 3;
   coins: number;
   completedOrders: number;
   orderIndex: number;
@@ -47,12 +50,15 @@ type ReleaseState = {
   bgm: boolean;
   sfx: boolean;
   vibration: boolean;
+  dayNumber: number;
+  lastRaceDay: number | null;
+  raceEntryDay: number | null;
 };
 
 const STORAGE_KEY = 'dbg-lab-mvp-release-integration-v1';
 // v2: 시작 코인을 0으로 바꿔 첫 주문 급여 → 드림 바이크 강화의 인과관계가 보이게 한다
 const DEFAULT_STATE: ReleaseState = {
-  version: 2,
+  version: 3,
   coins: 0,
   completedOrders: 0,
   orderIndex: 0,
@@ -61,6 +67,9 @@ const DEFAULT_STATE: ReleaseState = {
   bgm: true,
   sfx: true,
   vibration: false,
+  dayNumber: 1,
+  lastRaceDay: null,
+  raceEntryDay: null,
 };
 
 export class MvpReleaseIntegrationController {
@@ -113,10 +122,22 @@ export class MvpReleaseIntegrationController {
       return;
     }
     if (screen === 'home') {
+      const raceDay = isRaceDay(this.state.dayNumber, RIVERSIDE_ENDURANCE_RACE);
+      const raceCompleted = this.state.lastRaceDay === this.state.dayNumber;
       this.game = startHomeDesignPrototype(this.stageId, 'warm-pixel-garage', {
         coins: this.state.coins,
         completedOrders: this.state.completedOrders,
         progress: this.buildHomeProgress(),
+        dayNumber: this.state.dayNumber,
+        dayStatusLabel: raceDay ? '대회일' : '영업 준비',
+        race: {
+          dayNumber: this.state.dayNumber,
+          heldEveryDays: RIVERSIDE_ENDURANCE_RACE.heldEveryDays,
+          daysUntil: daysUntilRace(this.state.dayNumber, RIVERSIDE_ENDURANCE_RACE),
+          entryFee: RIVERSIDE_ENDURANCE_RACE.entryFee,
+          available: raceDay && !raceCompleted,
+          completed: raceCompleted,
+        },
         onPlay: () => this.show(this.state.tutorialDone ? 'game' : 'guide'),
         // 만들기 진입: 제작 중 자전거를 선택 상태로 두고 상세·성장(제작 모드) 화면으로 이동
         onCraft: (bikeId) => { this.collection.selectedBikeId = bikeId; this.saveCollection(); this.show('dream'); },
@@ -126,7 +147,41 @@ export class MvpReleaseIntegrationController {
         onShowcase: () => this.show('showcase'),
         onProfile: () => this.show('profile'),
         onSettings: () => this.show('settings'),
+        onRace: () => this.show('race'),
         onSfx: (event) => this.play(event),
+      });
+      return;
+    }
+    if (screen === 'race') {
+      if (!isRaceDay(this.state.dayNumber, RIVERSIDE_ENDURANCE_RACE) || this.state.lastRaceDay === this.state.dayNumber) {
+        this.show('home');
+        return;
+      }
+      const progress = this.buildHomeProgress();
+      this.game = startRaceCinematicBroadcast(this.stageId, {
+        initialCoins: this.state.coins,
+        dayNumber: this.state.dayNumber,
+        seed: this.state.dayNumber * 1009 + this.state.completedOrders,
+        stats: bikeStats(this.growth, progress.heroBike.id),
+        playerBike: {
+          name: progress.heroBike.name,
+          category: bikeCategoryFromKorean(progress.heroBike.category),
+          frameColor: progress.heroBike.color,
+        },
+        entryFeePaid: this.state.raceEntryDay === this.state.dayNumber,
+        onEntered: ({ coins }) => {
+          this.state.coins = coins;
+          this.state.raceEntryDay = this.state.dayNumber;
+          this.saveState();
+        },
+        onExit: () => this.show('home'),
+        onSettled: ({ coins }) => {
+          this.state.coins = coins;
+          this.state.lastRaceDay = this.state.dayNumber;
+          this.state.raceEntryDay = null;
+          this.saveState();
+          this.show('home');
+        },
       });
       return;
     }
@@ -287,6 +342,7 @@ export class MvpReleaseIntegrationController {
   // 주문 3종을 순서대로 순환하고, 마지막 주문 이후에는 처음부터 반복 플레이한다
   private advanceOrder() {
     this.state.orderIndex = (this.state.orderIndex + 1) % ORDER_METAS.length;
+    this.state.dayNumber += 1;
     this.saveState();
   }
 
@@ -339,7 +395,7 @@ export class MvpReleaseIntegrationController {
   private roomFor(screen: ReleaseScreen): ReleaseAudioRoom {
     if (screen === 'title') return 'title';
     if (screen === 'game' || screen === 'guide') return 'work';
-    if (screen === 'reward') return 'reward';
+    if (screen === 'reward' || screen === 'race') return 'reward';
     return 'home';
   }
 
@@ -349,9 +405,16 @@ export class MvpReleaseIntegrationController {
 
   private loadState(): ReleaseState {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<ReleaseState> | null;
-      if (!saved || saved.version !== 2) return { ...DEFAULT_STATE };
-      return { ...DEFAULT_STATE, ...saved };
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as (Partial<Omit<ReleaseState, 'version'>> & { version?: number }) | null;
+      if (!saved || (saved.version !== 2 && saved.version !== 3)) return { ...DEFAULT_STATE };
+      return {
+        ...DEFAULT_STATE,
+        ...saved,
+        version: 3,
+        dayNumber: Math.max(1, Math.floor(Number(saved.dayNumber) || 1)),
+        lastRaceDay: typeof saved.lastRaceDay === 'number' ? Math.max(1, Math.floor(saved.lastRaceDay)) : null,
+        raceEntryDay: typeof saved.raceEntryDay === 'number' ? Math.max(1, Math.floor(saved.raceEntryDay)) : null,
+      };
     } catch {
       return { ...DEFAULT_STATE };
     }
