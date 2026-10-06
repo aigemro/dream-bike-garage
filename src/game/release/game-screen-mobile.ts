@@ -8,6 +8,7 @@ import { PARTS, ORDERS, type PartType, type Goal } from './merge-prototype';
 import { findFirstAvailablePlacement } from './auto-placement';
 import { cancelPartSelection } from './part-selection';
 import { orderMetaAt } from './meta-progress';
+import { formatDayClock, isDayUrgent } from './day-session';
 
 type Point = { x: number; y: number };
 type Piece = { id: number; type: PartType; level: number; row: number; column: number; rotation: number; item: Phaser.GameObjects.Container };
@@ -103,11 +104,11 @@ class GameScreenMobileScene extends Phaser.Scene {
     const summary = this.hooks.getDaySummary?.();
     this.metrics.setText(summary ? '' : `${((this.time.now - this.startedAt) / 1000).toFixed(0)}s · 머지 ${this.merges}`);
     if (summary && this.dayBadgeText && this.dayTimerText && this.dayIncomeText && this.dayTimerPanel && this.dayTimerFill) {
-      const remainingSeconds = Math.max(0, Math.ceil(summary.remainingMs / 1000));
-      const urgent = summary.remainingMs <= 3000;
+      // 1분 이상 Day도 표시되도록 mm:ss로 표기하고, 종료 임박 강조는 Day 길이에 비례시킵니다.
+      const urgent = isDayUrgent(summary.remainingMs, summary.durationMs);
       const remainingRatio = Phaser.Math.Clamp(summary.remainingMs / Math.max(1, summary.durationMs), 0, 1);
       this.dayBadgeText.setText(`DAY ${summary.dayNumber}`);
-      this.dayTimerText.setText(`00:${String(remainingSeconds).padStart(2, '0')}`).setColor(urgent ? '#fff1c6' : INK);
+      this.dayTimerText.setText(formatDayClock(summary.remainingMs)).setColor(urgent ? '#fff1c6' : INK);
       this.dayIncomeText.setText(`오늘 수입  ${summary.earnings.toLocaleString()}`);
       this.dayTimerPanel.setFillStyle(urgent ? 0xc95746 : 0xf4b84a);
       this.dayTimerFill.setDisplaySize(378 * remainingRatio, 4).setFillStyle(urgent ? 0xc95746 : 0x5e9a67);
@@ -630,10 +631,13 @@ class GameScreenMobileScene extends Phaser.Scene {
     this.hooks.onSfx?.('complete');
     this.info.setText('자전거 완성! 납품 처리 후 다음 주문을 준비합니다.');
     if (this.hooks.continuousOrders) {
+      // 보상·완료 수는 완성 시점에 바로 반영합니다. 650ms 지연 안에 Day가 끝나 씬이 파기되면
+      // 지연 콜백이 실행되지 않아 납품 보상이 누락되므로, 다음 주문 전환 연출만 지연합니다.
+      const result = this.hooks.onOrderComplete?.(this.orderIndex);
       this.time.delayedCall(650, () => {
-        const result = this.hooks.onOrderComplete?.(this.orderIndex);
         this.orderCompleting = false;
-        this.orderIndex = (this.orderIndex + 1) % 2;
+        // 주문 3종(ORDERS)을 모두 순환합니다. 이전에는 2종만 돌아 세 번째 주문이 나오지 않았습니다.
+        this.orderIndex = (this.orderIndex + 1) % ORDERS.length;
         this.goals = ORDERS[this.orderIndex].map((goal) => ({ ...goal }));
         this.startedAt = this.time.now;
         this.drawOrderBike();
