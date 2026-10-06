@@ -3,6 +3,7 @@ import { DuskWorkshopGarageScene } from './home-design-dusk-workshop';
 import { RetroPixelGarageScene } from './home-design-retro-pixel';
 import { ModernCasualGarageScene } from './home-design-modern-casual';
 import { drawPixelBike, makeWarmColorway, bikeCategoryFromKorean } from './bike-pixel-sprite';
+import { formatDayClock } from './day-session';
 
 export type HomeDesignPrototypeMode =
   | 'warm-pixel-garage'
@@ -312,9 +313,10 @@ class WarmPixelGarageScene extends Phaser.Scene {
   private renderTopBar() {
     this.pixelRect(195, 39, 366, 54, P.paper, P.ink, 15);
     if (this.hooks.dayNumber) {
-      const remainingSeconds = Math.max(0, Math.ceil((this.hooks.dayRemainingMs ?? 0) / 1000));
+      // Day 타이머가 연결된 경우에만 남은 시간을 붙입니다. 타이머가 없으면 의미 없는 '00:00'을 표시하지 않습니다.
+      const remaining = this.hooks.dayRemainingMs === undefined ? '' : ` · ${formatDayClock(this.hooks.dayRemainingMs)}`;
       this.label(28, 18, `DAY ${this.hooks.dayNumber}`, 9, '#795044', true).setDepth(16);
-      this.label(28, 36, `${this.hooks.dayStatusLabel ?? '준비'} · 00:${String(remainingSeconds).padStart(2, '0')}`, 12, '#3f7851', true).setDepth(16);
+      this.label(28, 36, `${this.hooks.dayStatusLabel ?? '준비'}${remaining}`, 12, '#3f7851', true).setDepth(16);
     } else if (this.hooks.progress) {
       // 에너지 시스템은 미도입(레퍼런스 결정)이므로 통합 모드에서는 납품 실적을 표시한다
       this.label(28, 20, 'DELIVERY', 8, '#795044', true).setDepth(16);

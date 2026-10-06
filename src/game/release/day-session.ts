@@ -44,3 +44,13 @@ export function finishDay(session: DaySessionState): DaySessionState {
 export function nextDay(session: DaySessionState): DaySessionState {
   return { ...session, current: createReadyDay(session.current.dayNumber + 1) };
 }
+
+// HUD·홈 공용 Day 남은 시간 표기(mm:ss). 1분 이상 Day도 그대로 표기하고, 1초 미만은 올림해 보여줍니다.
+export function formatDayClock(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
+}
+// 종료 임박 강조 기준: Day 길이의 10% (최소 3초)
+export function isDayUrgent(remainingMs: number, durationMs: number): boolean {
+  return remainingMs <= Math.max(3000, durationMs * 0.1);
+}
