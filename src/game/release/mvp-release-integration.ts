@@ -29,13 +29,17 @@ import {
   parseGrowthProgress,
   serializeCollectionProgress,
   serializeGrowthProgress,
+  type CollectionProgress,
   type CraftPartType,
   type DreamStatKey,
+  type GrowthProgress,
   type OrderDeliveryResult,
 } from './meta-progress';
 import { CATALOG_SIZE, catalogBikeById } from './bike-catalog';
 import { WORKBENCH_ORDERS } from './workbench-orders';
-import { RELEASE_STORAGE_KEY, createReleaseState, restoreReleaseState } from './release-state';
+import { RELEASE_STORAGE_KEY, createReleaseState, restoreReleaseState, type ReleaseState } from './release-state';
+import { createPlatform, type GamePlatform, type Unsubscribe } from '../../platform';
+import { SaveStore } from '../../platform/save-store';
 import { startRaceCinematicBroadcast } from './race-cinematic-broadcast';
 import { RIVERSIDE_ENDURANCE_RACE, daysUntilRace, isRaceDay } from './race-progress';
 import { bikeCategoryFromKorean } from './bike-pixel-sprite';
@@ -61,31 +65,48 @@ const DAY_SETTLE_DELAY_MS = 2200;
 // 영업 시간(정산 표시용) 기록 간격
 const ACTIVE_TIME_TICK_MS = 1000;
 
+// 계정 슬롯 저장 항목. 계정 슬롯 도입 전 웹 버전의 저장 키는 첫 실행 때 한 번 옮겨 옵니다(원본은 남김).
+const SAVE_ENTRIES = ['release', 'collection', 'growth'] as const;
+type SaveEntry = (typeof SAVE_ENTRIES)[number];
+const LEGACY_SAVE_KEYS: Record<SaveEntry, string> = {
+  release: RELEASE_STORAGE_KEY,
+  collection: COLLECTION_STORAGE_KEY,
+  growth: GROWTH_STORAGE_KEY,
+};
+
 export class MvpReleaseIntegrationController {
   private game?: Phaser.Game;
   private readonly audio = new ReleaseAudio();
-  private state = this.loadState();
+  private state: ReleaseState;
   private screen: ReleaseScreen = 'title';
   // 컬렉션 진행 상태(이해도·등록·제작): 새로고침·재진입 후에도 동일하게 복구된다
-  private collection = this.loadCollection();
+  private collection: CollectionProgress;
   // 자전거별 성장 상태: 급여 투자 결과가 저장·복구되는 성장 루프
-  private growth = this.loadGrowth();
+  private growth: GrowthProgress;
   private dayDeliveries: DayDelivery[] = [];
   private settleTimer?: number;
   private activeTimer?: number;
   private activeSince = 0;
   private readonly stageId = `mvp-release-stage-${Math.random().toString(36).slice(2)}`;
-  private readonly onVisibility = () => {
-    if (this.screen !== 'game') return;
-    if (document.hidden) this.pauseToday('background');
-    else this.resumeToday();
-  };
-  private readonly onPageHide = () => { if (this.screen === 'game') this.pauseToday('background'); };
+  private readonly unsubscribeVisibility: Unsubscribe;
 
-  constructor(private readonly parent: HTMLElement) {
+  constructor(
+    private readonly parent: HTMLElement,
+    private readonly platform: GamePlatform,
+    private readonly save: SaveStore<SaveEntry>,
+  ) {
+    this.state = this.loadState();
+    this.collection = this.loadCollection();
+    this.growth = this.loadGrowth();
     this.audio.setEnabled(this.state.bgm, this.state.sfx);
-    document.addEventListener('visibilitychange', this.onVisibility);
-    window.addEventListener('pagehide', this.onPageHide);
+    // 앱 전환: 작업대에서는 Day를 일시정지·재개하고, 화면이 사라질 때 남은 저장을 내보냅니다.
+    this.unsubscribeVisibility = this.platform.onAppVisibilityChange((visible) => {
+      if (this.screen === 'game') {
+        if (visible) this.resumeToday();
+        else this.pauseToday('background');
+      }
+      if (!visible) void this.save.flush();
+    });
     this.renderShell();
     this.show('title');
   }
@@ -93,8 +114,7 @@ export class MvpReleaseIntegrationController {
   destroy() {
     if (this.screen === 'game') this.pauseToday('screen-navigation');
     this.clearDayTimers();
-    document.removeEventListener('visibilitychange', this.onVisibility);
-    window.removeEventListener('pagehide', this.onPageHide);
+    this.unsubscribeVisibility();
     this.game?.destroy(true);
     this.audio.destroy();
     this.parent.innerHTML = '';
@@ -304,9 +324,7 @@ export class MvpReleaseIntegrationController {
         this.collection = createCollectionProgress();
         this.growth = createGrowthProgress();
         this.dayDeliveries = [];
-        localStorage.removeItem(RELEASE_STORAGE_KEY);
-        localStorage.removeItem(COLLECTION_STORAGE_KEY);
-        localStorage.removeItem(GROWTH_STORAGE_KEY);
+        SAVE_ENTRIES.forEach((entry) => this.save.remove(entry));
         window.setTimeout(() => this.show('title'), 0);
       },
       onToggle: (key, value) => {
@@ -511,49 +529,54 @@ export class MvpReleaseIntegrationController {
 
   private loadState() {
     try {
-      return restoreReleaseState(localStorage.getItem(RELEASE_STORAGE_KEY));
+      return restoreReleaseState(this.save.get('release'));
     } catch {
       return createReleaseState();
     }
   }
 
+  // 저장소를 쓸 수 없는 환경(프라이빗 모드 등)에서도 메모리 진행으로 플레이를 이어갑니다. 실패는 SaveStore가 알립니다.
   private saveState() {
-    try {
-      localStorage.setItem(RELEASE_STORAGE_KEY, JSON.stringify(this.state));
-    } catch {
-      // 저장소를 쓸 수 없는 환경(프라이빗 모드 등)에서도 메모리 진행으로 플레이를 이어갑니다.
-    }
+    this.save.set('release', JSON.stringify(this.state));
   }
 
   // 컬렉션 저장·복구: 직렬화·손상 복구·비정상 값 방어 규칙은 meta-progress가 담당
   private loadCollection() {
     try {
-      return parseCollectionProgress(localStorage.getItem(COLLECTION_STORAGE_KEY));
+      return parseCollectionProgress(this.save.get('collection'));
     } catch {
       return createCollectionProgress();
     }
   }
 
   private saveCollection() {
-    localStorage.setItem(COLLECTION_STORAGE_KEY, serializeCollectionProgress(this.collection));
+    this.save.set('collection', serializeCollectionProgress(this.collection));
   }
 
   // 성장 저장·복구: 검증·보정 규칙은 meta-progress가 담당
   private loadGrowth() {
     try {
-      return parseGrowthProgress(localStorage.getItem(GROWTH_STORAGE_KEY));
+      return parseGrowthProgress(this.save.get('growth'));
     } catch {
       return createGrowthProgress();
     }
   }
 
   private saveGrowth() {
-    localStorage.setItem(GROWTH_STORAGE_KEY, serializeGrowthProgress(this.growth));
+    this.save.set('growth', serializeGrowthProgress(this.growth));
   }
 }
 
-export function startMvpReleaseIntegration(parent: string) {
+// 플랫폼(웹·앱인토스)을 고르고 사용자 슬롯의 저장을 한 번에 읽어 온 뒤 게임을 시작합니다.
+export async function startMvpReleaseIntegration(parent: string) {
   const element = document.getElementById(parent);
   if (!element) throw new Error(`MVP release integration parent not found: ${parent}`);
-  return new MvpReleaseIntegrationController(element);
+  const platform = await createPlatform();
+  const save = await SaveStore.open(platform.storage, {
+    entries: SAVE_ENTRIES,
+    playerKey: await platform.getPlayerKey(),
+    legacyKeys: LEGACY_SAVE_KEYS,
+    onError: (error) => console.warn('[save] 진행 저장에 실패했습니다. 이번 실행 동안은 메모리 진행으로 이어갑니다.', error),
+  });
+  return new MvpReleaseIntegrationController(element, platform, save);
 }

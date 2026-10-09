@@ -28,7 +28,31 @@
 
 토스 앱 실기기 확인은 콘솔에 번들을 올린 뒤 테스트 QR로 합니다. 3.x에는 샌드박스 앱이 없습니다.
 
-## 3. 화면 잘림 검토 (2026-10-09)
+## 3. 플랫폼 어댑터와 저장
+
+게임 코드는 `src/platform`의 `GamePlatform` 인터페이스만 쓰고, SDK는 `apps-in-toss-platform.ts`에서만 호출합니다. 앱인토스 빌드(`--mode toss`)일 때만 이 파일을 불러오므로 웹 빌드에는 SDK가 들어가지 않습니다(앱인토스 번들에서 별도 조각, gzip 약 20KB).
+
+| 기능 | 웹 브라우저 | 앱인토스 |
+|---|---|---|
+| 저장 | localStorage(비동기로 감쌈) | `Storage.getItem/setItem/removeItem` |
+| 사용자 키 | 없음 → 기기 공용 슬롯 `local` | `User.getAnonymousKey()` 해시. 토스앱 5.232.0 미만·오류면 `local` |
+| 앱 전환 | `visibilitychange`·`pagehide` | 같음 (SDK에 전용 이벤트 없음, 실기기 확인 대상) |
+| 뒤로가기 | 없음 | `graniteEvent` `backEvent` |
+| 닫기 | 없음 | `Screen.close()` |
+| 진동 | `navigator.vibrate` | `Device.triggerHaptic` |
+| Safe Area | 없음(CSS `env()`) | `SafeArea.get/subscribe` |
+
+뒤로가기·닫기·진동·Safe Area는 어댑터만 준비했고 게임 연결은 #79 4단계에서 합니다.
+
+### 계정 슬롯 저장 (`SaveStore`)
+
+- 키 형식: `dbg:v1:{슬롯}:{항목}`. 항목은 `release`(진행·작업대·Day)·`collection`·`growth`, 슬롯은 사용자 키 또는 `local`
+- 시작할 때 슬롯 항목을 한 번에 읽어 메모리에 올리고, 게임 중에는 메모리에서 바로 읽습니다. 앱인토스 `Storage`가 비동기라 이렇게 합니다.
+- 쓰기는 메모리에 즉시 반영하고 저장소에는 순서대로 내보냅니다. 같은 항목이 연달아 바뀌면 마지막 값만 씁니다. 앱이 화면에서 사라질 때 남은 쓰기를 내보냅니다.
+- 저장에 실패해도 메모리 진행은 유지하고 콘솔에 경고를 남깁니다.
+- 슬롯이 비어 있으면 한 번 옮겨 옵니다: ① 사용자 키 슬롯이면 `local` 슬롯(키를 받기 전 진행) ② 계정 슬롯 도입 전 웹 저장 키(`dbg-lab-mvp-release-integration-v1`·`dbg-lab-meta-collection`·`dbg-lab-meta-growth`). 원본은 지우지 않고, 옮긴 기록을 `_migrated`에 남깁니다.
+
+## 4. 화면 잘림 검토 (2026-10-09)
 
 ### 토스 상단 바
 

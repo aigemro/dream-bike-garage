@@ -14,6 +14,7 @@
 - `src/domain`: Merge, Board, Order, Garage 규칙
 - `src/data`: 아이템과 밸런스 데이터
 - `src/ui`: DOM UI와 스타일
+- `src/platform`: 실행 환경 어댑터(웹 브라우저·앱인토스)와 계정 슬롯 저장. 앱인토스 SDK는 `apps-in-toss-platform.ts`에서만 호출
 - `docs/game-design`: 설계자가 관리하는 게임 명세
 - `docs/development`: 개발자가 관리하는 기술 문서
 - `prompts`: 재사용 가능한 AI 작업 프롬프트
