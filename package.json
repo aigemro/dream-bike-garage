@@ -12,7 +12,8 @@
     "dev:toss": "vite --mode toss",
     "build:toss": "tsc -b && vite build --mode toss && ait build",
     "deploy:toss": "ait deploy",
-    "build:android": "tsc -b && vite build --mode android && cap sync android"
+    "build:android": "tsc -b && vite build --mode android && cap sync android",
+    "icons:android": "node scripts/android-icons.mjs"
   },
   "dependencies": {
     "@apps-in-toss/web-framework": "3.8.0",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@apps-in-toss/devtools": "3.8.0",
+    "@capacitor/assets": "3.0.5",
     "@capacitor/cli": "8.5.3",
     "@types/node": "^22.15.0",
     "typescript": "^5.8.3",

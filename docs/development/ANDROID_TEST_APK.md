@@ -44,6 +44,14 @@
 - `npm run build:android`: `vite build --mode android` → `cap sync android`
 - `.github/workflows/android-apk.yml`: Node 24·JDK 21로 `./gradlew assembleRelease` 후 Releases 업로드
 
+### 아이콘·시작 화면
+
+- 원본: `assets/app-icon-source.png` (600×600 픽셀아트, 크림 바탕 `#FDF3CA`). 앱인토스 콘솔 로고(600×600)와 같은 이미지
+- `npm run icons:android`로 안드로이드 아이콘·시작 화면을 다시 만듭니다. 원본만 바꾸고 이 명령을 실행하면 됩니다.
+  - 적응형 아이콘은 기기마다 원·둥근 사각형으로 잘리므로 그림을 85%로 줄여 가운데에 둡니다(생성 도구가 16.7% 여백을 따로 줌).
+  - 픽셀이 번지지 않도록 nearest로 확대합니다.
+  - 세로 고정 앱이라 가로·다크 모드·ldpi 시작 화면은 지웁니다.
+
 ### 서명 키
 
 - GitHub 저장소 비밀값: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
