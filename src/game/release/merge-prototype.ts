@@ -4,6 +4,7 @@ import {
   bikePartAnchorOffset, WARM_PART_COLORS,
 } from './bike-pixel-sprite';
 import { cancelPartSelection } from './part-selection';
+import { ORDER_METAS } from './meta-progress';
 
 export type MergePrototypeMode = 'free' | 'order' | 'guided' | 'integrated';
 export type MergePrototypeTheme = 'lab' | 'warm-pixel';
@@ -38,26 +39,8 @@ export const PARTS: Array<{ type: PartType; name: string; short: string; color: 
   { type: 'handlebar', name: '핸들바', short: 'H', color: 0x8c7bff, shape: [{ x: 0, y: 0 }, { x: 1, y: 0 }] },
 ];
 
-export const ORDERS: Goal[][] = [
-  [
-    { type: 'frame', level: 2, delivered: false },
-    { type: 'wheel', level: 2, delivered: false },
-    { type: 'drivetrain', level: 1, delivered: false },
-    { type: 'handlebar', level: 1, delivered: false },
-  ],
-  [
-    { type: 'frame', level: 3, delivered: false },
-    { type: 'wheel', level: 2, delivered: false },
-    { type: 'drivetrain', level: 2, delivered: false },
-    { type: 'handlebar', level: 1, delivered: false },
-  ],
-  [
-    { type: 'frame', level: 2, delivered: false },
-    { type: 'wheel', level: 3, delivered: false },
-    { type: 'drivetrain', level: 2, delivered: false },
-    { type: 'handlebar', level: 2, delivered: false },
-  ],
-];
+// 주문별 부품 목표: 요구 레벨은 meta-progress의 주문 메타(partLevels)를 단일 출처로 사용합니다.
+export const ORDERS: Goal[][] = ORDER_METAS.map((meta) => PARTS.map((part) => ({ type: part.type, level: meta.partLevels[part.type], delivered: false })));
 
 class MergePrototypeScene extends Phaser.Scene {
   constructor(

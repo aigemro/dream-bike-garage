@@ -37,6 +37,7 @@
 | 출시 일정·마일스톤 | [docs/development/RELEASE_PLAN_2026_11.md](docs/development/RELEASE_PLAN_2026_11.md) |
 | 주간 목요일 회의 운영 | [docs/development/WEEKLY_SYNC.md](docs/development/WEEKLY_SYNC.md) |
 | 코드 구조 원칙 | [docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md) |
+| 머지 작업대(E안)·Day 세션 적용 | [docs/development/MERGE_WORKBENCH_DAY_SESSION.md](docs/development/MERGE_WORKBENCH_DAY_SESSION.md) |
 | AI 도구 병행 운영(Claude/Codex) | [docs/development/AI_ASSISTANT_WORKFLOW.md](docs/development/AI_ASSISTANT_WORKFLOW.md) |
 | 앱인토스 출시 가이드 | [docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md](docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md) |
 | 웹·앱 화면 구조 전략 | [docs/development/SCREEN_LAYOUT_STRATEGY.md](docs/development/SCREEN_LAYOUT_STRATEGY.md) |

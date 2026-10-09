@@ -8,7 +8,7 @@ import { PARTS, ORDERS, type PartType, type Goal } from './merge-prototype';
 import { findFirstAvailablePlacement } from './auto-placement';
 import { cancelPartSelection } from './part-selection';
 import { orderMetaAt } from './meta-progress';
-import { formatDayClock, isDayUrgent } from './day-session';
+import { formatDayClock, isDayUrgent } from '../../domain/day-session';
 
 type Point = { x: number; y: number };
 type Piece = { id: number; type: PartType; level: number; row: number; column: number; rotation: number; item: Phaser.GameObjects.Container };

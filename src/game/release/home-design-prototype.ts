@@ -3,7 +3,7 @@ import { DuskWorkshopGarageScene } from './home-design-dusk-workshop';
 import { RetroPixelGarageScene } from './home-design-retro-pixel';
 import { ModernCasualGarageScene } from './home-design-modern-casual';
 import { drawPixelBike, makeWarmColorway, bikeCategoryFromKorean } from './bike-pixel-sprite';
-import { formatDayClock } from './day-session';
+import { formatDayClock } from '../../domain/day-session';
 
 export type HomeDesignPrototypeMode =
   | 'warm-pixel-garage'
