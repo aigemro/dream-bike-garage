@@ -1,7 +1,8 @@
-// 실행 환경(웹 브라우저 · 앱인토스) 공통 인터페이스
-// 게임 코드는 이 인터페이스만 사용하고, 앱인토스 SDK는 apps-in-toss-platform.ts에서만 호출합니다.
+// 실행 환경(웹 브라우저 · 앱인토스 · 안드로이드 테스트 앱) 공통 인터페이스
+// 게임 코드는 이 인터페이스만 사용합니다. 앱인토스 SDK는 apps-in-toss-platform.ts,
+// Capacitor(안드로이드 테스트 앱)는 android-app-platform.ts에서만 호출합니다.
 
-export type PlatformKind = 'browser' | 'apps-in-toss';
+export type PlatformKind = 'browser' | 'apps-in-toss' | 'android-app';
 
 // 앱인토스 Storage와 같은 모양의 비동기 문자열 저장소
 export interface AsyncKeyValueStorage {

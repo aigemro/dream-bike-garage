@@ -33,11 +33,12 @@ body {
    * 노치·홈 인디케이터 영역을 비웁니다. CSS env()(viewport-fit=cover)와
    * 호스트 SDK가 알려 준 값(--host-safe-*, 앱인토스) 중 큰 쪽을 씁니다.
    */
+  /* 안드로이드 테스트 앱(Capacitor)은 상태 바·내비게이션 바 영역을 --safe-area-inset-*으로 알려 줍니다. */
   padding:
-    calc(max(env(safe-area-inset-top, 0px), var(--host-safe-top, 0px)) + var(--host-top-reserve, 0px))
-    max(env(safe-area-inset-right, 0px), var(--host-safe-right, 0px))
-    max(env(safe-area-inset-bottom, 0px), var(--host-safe-bottom, 0px))
-    max(env(safe-area-inset-left, 0px), var(--host-safe-left, 0px));
+    calc(max(env(safe-area-inset-top, 0px), var(--host-safe-top, 0px), var(--safe-area-inset-top, 0px)) + var(--host-top-reserve, 0px))
+    max(env(safe-area-inset-right, 0px), var(--host-safe-right, 0px), var(--safe-area-inset-right, 0px))
+    max(env(safe-area-inset-bottom, 0px), var(--host-safe-bottom, 0px), var(--safe-area-inset-bottom, 0px))
+    max(env(safe-area-inset-left, 0px), var(--host-safe-left, 0px), var(--safe-area-inset-left, 0px));
   overflow: hidden;
 }
 
