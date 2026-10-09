@@ -15,6 +15,9 @@ body {
   overflow: hidden;
 }
 
+/* 모바일 주소창 변화에 맞춰 실제 보이는 높이를 씁니다. */
+html { height: 100dvh; }
+
 body {
   margin: 0;
   background:
@@ -24,10 +27,29 @@ body {
 
 #app {
   width: 100%;
-  height: 100vh;
-  height: 100dvh;
-  padding: 0;
+  /* 창 높이(100dvh) 대신 body를 따라가야 호스트·시뮬레이터가 body 크기를 바꿔도 넘치지 않습니다. */
+  height: 100%;
+  /* 노치·홈 인디케이터 영역을 비웁니다(viewport-fit=cover에서만 값이 생김). */
+  padding:
+    calc(env(safe-area-inset-top, 0px) + var(--host-top-reserve, 0px))
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
   overflow: hidden;
+}
+
+/*
+ * 앱인토스 게임 미니앱은 토스 상단 바(54px)가 투명하게 화면 위에 떠서 콘텐츠를 밀어내지 않습니다.
+ * 오른쪽 위 ⋯·× 캡슐이 각 화면의 ← 홈·⚙·건너뛰기 버튼을 가리므로 그 높이만큼 위를 비워 둡니다.
+ * 빈 띠는 게임 바탕색으로 채워 이어 보이게 합니다. 최종 디자인에서 캡슐을 피하는 배치로 바꾸면 줄일 수 있습니다.
+ */
+.apps-in-toss {
+  --host-top-reserve: 54px;
+}
+
+.apps-in-toss body,
+.apps-in-toss #app {
+  background: #c78452;
 }
 
 #game-container {

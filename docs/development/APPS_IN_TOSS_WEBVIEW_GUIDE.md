@@ -101,8 +101,9 @@ interface GamePlatform {
 
 - 앱인토스 개발자 콘솔에서 워크스페이스와 게임 등록
 - 기존 웹 프로젝트용 WebView 개발 가이드에 따라 SDK 구성
-- `granite.config.ts`의 앱 이름, 표시 이름, 아이콘을 콘솔 정보와 일치
-- 로컬 및 샌드박스 환경에서 실행 확인
+- `apps-in-toss.config.ts`의 앱 이름을 콘솔 정보와 일치 (SDK 3.x 형식. 2.x는 `granite.config.ts`)
+- 로컬(devtools) 및 토스 앱 테스트 QR로 실행 확인
+- 적용 내역과 명령: [앱인토스 SDK 설정과 화면 맞춤](APPS_IN_TOSS_SDK_SETUP.md)
 - 앱인토스 기능은 플랫폼 어댑터를 통하여 연결
 
 > 패키지명과 SDK API는 변경될 수 있으므로 구현 시점의 공식 가이드를 기준으로 설치한다.
