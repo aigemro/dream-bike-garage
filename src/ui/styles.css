@@ -29,14 +29,58 @@ body {
   width: 100%;
   /* 창 높이(100dvh) 대신 body를 따라가야 호스트·시뮬레이터가 body 크기를 바꿔도 넘치지 않습니다. */
   height: 100%;
-  /* 노치·홈 인디케이터 영역을 비웁니다(viewport-fit=cover에서만 값이 생김). */
+  /*
+   * 노치·홈 인디케이터 영역을 비웁니다. CSS env()(viewport-fit=cover)와
+   * 호스트 SDK가 알려 준 값(--host-safe-*, 앱인토스) 중 큰 쪽을 씁니다.
+   */
   padding:
-    calc(env(safe-area-inset-top, 0px) + var(--host-top-reserve, 0px))
-    env(safe-area-inset-right, 0px)
-    env(safe-area-inset-bottom, 0px)
-    env(safe-area-inset-left, 0px);
+    calc(max(env(safe-area-inset-top, 0px), var(--host-safe-top, 0px)) + var(--host-top-reserve, 0px))
+    max(env(safe-area-inset-right, 0px), var(--host-safe-right, 0px))
+    max(env(safe-area-inset-bottom, 0px), var(--host-safe-bottom, 0px))
+    max(env(safe-area-inset-left, 0px), var(--host-safe-left, 0px));
   overflow: hidden;
 }
+
+/* 종료 확인 창 (토스 앱의 뒤로가기를 홈에서 눌렀을 때). 최종 디자인 때 다시 다듬습니다. */
+.exit-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(30, 18, 24, 0.55);
+}
+
+.exit-confirm__panel {
+  width: min(300px, 100%);
+  padding: 22px 20px 18px;
+  border: 3px solid #5d3b34;
+  border-radius: 6px;
+  background: #fff1c6;
+  color: #3b2531;
+  text-align: center;
+  box-shadow: 0 6px 0 rgba(59, 37, 49, 0.35);
+}
+
+.exit-confirm__title { margin: 0 0 6px; font-size: 17px; font-weight: 700; }
+.exit-confirm__body { margin: 0 0 18px; font-size: 13px; line-height: 1.5; color: #5d3b34; }
+.exit-confirm__actions { display: flex; gap: 10px; }
+
+.exit-confirm__button {
+  flex: 1;
+  min-height: 44px;
+  border: 3px solid #5d3b34;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: #3b2531;
+  background: #f2c14e;
+  cursor: pointer;
+}
+
+.exit-confirm__button--secondary { background: #fff8e6; }
 
 /*
  * 앱인토스 게임 미니앱은 토스 상단 바(54px)가 투명하게 화면 위에 떠서 콘텐츠를 밀어내지 않습니다.

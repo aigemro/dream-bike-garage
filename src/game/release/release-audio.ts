@@ -15,12 +15,28 @@ export class ReleaseAudio {
   private room: ReleaseAudioRoom = 'title';
   private bgm = true;
   private sfx = true;
+  // 앱이 화면에서 사라진 동안(백그라운드) 소리를 모두 멈춥니다. 앱인토스 게임 출시 체크리스트 항목입니다.
+  private suspended = false;
 
   setEnabled(bgm: boolean, sfx: boolean) {
     this.bgm = bgm;
     this.sfx = sfx;
     if (!bgm) this.stopMusic();
-    else if (this.context) this.startMusic();
+    else if (this.context && !this.suspended) this.startMusic();
+  }
+
+  // 백그라운드로 가면 배경음악·효과음을 멈추고, 돌아오면 배경음악을 다시 켭니다.
+  setSuspended(suspended: boolean) {
+    if (this.suspended === suspended) return;
+    this.suspended = suspended;
+    if (suspended) {
+      this.stopMusic();
+      void this.context?.suspend();
+      return;
+    }
+    if (!this.context) return;
+    void this.context.resume();
+    if (this.bgm) this.startMusic();
   }
 
   setRoom(room: ReleaseAudioRoom) {
@@ -29,13 +45,14 @@ export class ReleaseAudio {
   }
 
   unlock() {
+    if (this.suspended) return;
     if (!this.context) this.context = new AudioContext();
     void this.context.resume();
     if (this.bgm) this.startMusic();
   }
 
   play(event: ReleaseSfxEvent) {
-    if (!this.sfx) return;
+    if (!this.sfx || this.suspended) return;
     this.unlock();
     const patterns: Record<ReleaseSfxEvent, Array<[number, number, OscillatorType, number]>> = {
       tap: [[330, .05, 'triangle', .025]],
@@ -61,7 +78,7 @@ export class ReleaseAudio {
   }
 
   private startMusic() {
-    if (!this.context || this.musicTimer || !this.bgm) return;
+    if (!this.context || this.musicTimer || !this.bgm || this.suspended) return;
     const tick = () => {
       if (!this.bgm || !this.context) return;
       const notes = ROOM_NOTES[this.room];

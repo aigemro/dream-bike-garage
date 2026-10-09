@@ -5,6 +5,7 @@
 import Phaser from 'phaser';
 import { drawPixelBike, makeWarmColorway } from './bike-pixel-sprite';
 import { drawFieldCharacter } from './art-character-pixel';
+import { APP_VERSION } from '../../app-version';
 
 const FONT = '"Arial Rounded MT Bold", "Noto Sans KR", sans-serif';
 const INK = '#3b2531';
@@ -66,7 +67,7 @@ class TitleLoadingScene extends Phaser.Scene {
     this.loadingLabel = this.add.text(195, 692, '공방 문을 여는 중…', { fontFamily: FONT, fontSize: '10px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3);
 
     this.message = this.add.text(195, 730, '', { fontFamily: FONT, fontSize: '10px', color: '#ffe6a8', align: 'center', wordWrap: { width: 340 } }).setOrigin(0.5, 0).setDepth(3);
-    this.add.text(195, 788, 'Dream Bike Garage Lab · v0.1.0-lab', { fontFamily: FONT, fontSize: '8px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3).setAlpha(0.8);
+    this.add.text(195, 788, `Dream Bike Garage · v${APP_VERSION}`, { fontFamily: FONT, fontSize: '8px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3).setAlpha(0.8);
 
     this.input.on('pointerdown', () => this.enterHome());
   }

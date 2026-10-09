@@ -38,8 +38,10 @@ import {
 import { CATALOG_SIZE, catalogBikeById } from './bike-catalog';
 import { WORKBENCH_ORDERS } from './workbench-orders';
 import { RELEASE_STORAGE_KEY, createReleaseState, restoreReleaseState, type ReleaseState } from './release-state';
-import { createPlatform, type GamePlatform, type Unsubscribe } from '../../platform';
+import { createPlatform, type GamePlatform, type HapticKind, type Unsubscribe } from '../../platform';
 import { SaveStore } from '../../platform/save-store';
+import { bindSafeAreaCss } from '../../platform/safe-area-css';
+import { showExitConfirm } from '../../ui/exit-confirm';
 import { startRaceCinematicBroadcast } from './race-cinematic-broadcast';
 import { RIVERSIDE_ENDURANCE_RACE, daysUntilRace, isRaceDay } from './race-progress';
 import { bikeCategoryFromKorean } from './bike-pixel-sprite';
@@ -68,6 +70,14 @@ const ACTIVE_TIME_TICK_MS = 1000;
 // 계정 슬롯 저장 항목. 계정 슬롯 도입 전 웹 버전의 저장 키는 첫 실행 때 한 번 옮겨 옵니다(원본은 남김).
 const SAVE_ENTRIES = ['release', 'collection', 'growth'] as const;
 type SaveEntry = (typeof SAVE_ENTRIES)[number];
+// 진동 설정이 켜져 있을 때 효과음과 함께 울릴 진동 (짧은 조작 피드백만)
+const HAPTIC_BY_SFX: Partial<Record<ReleaseSfxEvent, HapticKind>> = {
+  merge: 'tap',
+  install: 'tap',
+  complete: 'success',
+  reward: 'success',
+  error: 'error',
+};
 const LEGACY_SAVE_KEYS: Record<SaveEntry, string> = {
   release: RELEASE_STORAGE_KEY,
   collection: COLLECTION_STORAGE_KEY,
@@ -88,7 +98,8 @@ export class MvpReleaseIntegrationController {
   private activeTimer?: number;
   private activeSince = 0;
   private readonly stageId = `mvp-release-stage-${Math.random().toString(36).slice(2)}`;
-  private readonly unsubscribeVisibility: Unsubscribe;
+  private readonly unsubscribers: Unsubscribe[] = [];
+  private closeExitConfirm?: () => void;
 
   constructor(
     private readonly parent: HTMLElement,
@@ -99,14 +110,19 @@ export class MvpReleaseIntegrationController {
     this.collection = this.loadCollection();
     this.growth = this.loadGrowth();
     this.audio.setEnabled(this.state.bgm, this.state.sfx);
-    // 앱 전환: 작업대에서는 Day를 일시정지·재개하고, 화면이 사라질 때 남은 저장을 내보냅니다.
-    this.unsubscribeVisibility = this.platform.onAppVisibilityChange((visible) => {
+    // 앱 전환: 소리를 멈추고, 작업대에서는 Day를 일시정지·재개하며, 화면이 사라질 때 남은 저장을 내보냅니다.
+    this.unsubscribers.push(this.platform.onAppVisibilityChange((visible) => {
+      this.audio.setSuspended(!visible);
       if (this.screen === 'game') {
         if (visible) this.resumeToday();
         else this.pauseToday('background');
       }
       if (!visible) void this.save.flush();
-    });
+    }));
+    // 시스템 뒤로가기(앱인토스): 하위 화면은 홈으로, 홈·타이틀에서는 종료 확인
+    this.unsubscribers.push(this.platform.onBack(() => this.handleBack()));
+    this.unsubscribers.push(bindSafeAreaCss(this.platform));
+    void this.platform.lockPortrait();
     this.renderShell();
     this.show('title');
   }
@@ -114,7 +130,8 @@ export class MvpReleaseIntegrationController {
   destroy() {
     if (this.screen === 'game') this.pauseToday('screen-navigation');
     this.clearDayTimers();
-    this.unsubscribeVisibility();
+    this.unsubscribers.forEach((unsubscribe) => unsubscribe());
+    this.closeExitConfirm?.();
     this.game?.destroy(true);
     this.audio.destroy();
     this.parent.innerHTML = '';
@@ -514,6 +531,30 @@ export class MvpReleaseIntegrationController {
   private play(event: ReleaseSfxEvent) {
     this.audio.unlock();
     this.audio.play(event);
+    const haptic = HAPTIC_BY_SFX[event];
+    if (haptic && this.state.vibration) this.platform.haptic(haptic);
+  }
+
+  // 시스템 뒤로가기 처리. 화면 안의 ← 홈 버튼과 같은 경로로 이동해 Day 일시정지·정산 규칙을 그대로 따릅니다.
+  private handleBack() {
+    if (this.closeExitConfirm) {
+      this.closeExitConfirm();
+      this.closeExitConfirm = undefined;
+      return;
+    }
+    if (this.screen === 'title' || this.screen === 'home') {
+      this.closeExitConfirm = showExitConfirm({
+        onCancel: () => { this.closeExitConfirm = undefined; },
+        onExit: () => {
+          this.closeExitConfirm = undefined;
+          void this.save.flush().finally(() => this.platform.close());
+        },
+      });
+      return;
+    }
+    // 하루 정산 화면은 [홈] 버튼과 같이 다음 Day를 준비한 뒤 홈으로 갑니다(정산은 이미 끝난 상태).
+    if (this.screen === 'reward' && this.state.day.status === 'settlement') this.beginNextDay();
+    this.show('home');
   }
 
   private roomFor(screen: ReleaseScreen): ReleaseAudioRoom {

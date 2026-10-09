@@ -32,4 +32,6 @@ export interface GamePlatform {
   // 호스트가 알려 주는 Safe Area. 모르면 null(CSS env() 값에 맡김)
   getSafeAreaInsets(): SafeAreaInsets | null;
   onSafeAreaChange(listener: (insets: SafeAreaInsets) => void): Unsubscribe;
+  // 화면 방향을 세로로 고정합니다. 지원하지 않는 환경에서는 아무 일도 하지 않습니다.
+  lockPortrait(): Promise<void>;
 }

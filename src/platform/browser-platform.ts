@@ -48,5 +48,6 @@ export function createBrowserPlatform(): GamePlatform {
     },
     getSafeAreaInsets() { return null; },
     onSafeAreaChange() { return () => {}; },
+    async lockPortrait() {},
   };
 }

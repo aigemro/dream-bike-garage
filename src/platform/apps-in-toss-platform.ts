@@ -52,6 +52,13 @@ export function createAppsInTossPlatform(): GamePlatform {
     getSafeAreaInsets() {
       try { return toInsets(SafeArea.get()); } catch { return null; }
     },
+    async lockPortrait() {
+      try {
+        if (Screen.setOrientation.isSupported()) await Screen.setOrientation({ type: 'portrait' });
+      } catch {
+        // 토스앱 5.215.0 미만: 콘솔의 화면 방향 설정에 맡깁니다.
+      }
+    },
     onSafeAreaChange(listener) {
       try {
         return SafeArea.subscribe({ onEvent: (insets) => { const value = toInsets(insets); if (value) listener(value); } });
