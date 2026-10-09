@@ -13,12 +13,15 @@ export type OrderMeta = {
   bikeCategory: OrderBikeCategory;
   reward: number;
   bikeId: string;
+  // 부품별 요구 레벨: 게임 화면(merge-prototype ORDERS)과 머지 작업대가 같은 값을 쓰는 단일 출처
+  partLevels: OrderPartLevels;
 };
+export type OrderPartLevels = { frame: number; wheel: number; drivetrain: number; handlebar: number };
 
 export const ORDER_METAS: OrderMeta[] = [
-  { orderIndex: 0, name: '통학용 어반 로드', bikeCategory: 'city', reward: 1000, bikeId: 'urban-road' },
-  { orderIndex: 1, name: '트레일 MTB', bikeCategory: 'mtb', reward: 1400, bikeId: 'trail-mtb' },
-  { orderIndex: 2, name: '엔듀런스 로드', bikeCategory: 'road', reward: 1800, bikeId: 'aero-sprinter' },
+  { orderIndex: 0, name: '통학용 어반 로드', bikeCategory: 'city', reward: 1000, bikeId: 'urban-road', partLevels: { frame: 2, wheel: 2, drivetrain: 1, handlebar: 1 } },
+  { orderIndex: 1, name: '트레일 MTB', bikeCategory: 'mtb', reward: 1400, bikeId: 'trail-mtb', partLevels: { frame: 3, wheel: 2, drivetrain: 2, handlebar: 1 } },
+  { orderIndex: 2, name: '엔듀런스 로드', bikeCategory: 'road', reward: 1800, bikeId: 'aero-sprinter', partLevels: { frame: 2, wheel: 3, drivetrain: 2, handlebar: 2 } },
 ];
 
 export function orderMetaAt(orderIndex: number): OrderMeta | undefined {
