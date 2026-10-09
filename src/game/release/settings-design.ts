@@ -4,6 +4,7 @@
 // 계정·로그인·결제 설정은 MVP 밖(#6 담당)이라 다루지 않는다.
 import Phaser from 'phaser';
 import { drawFieldCharacter } from './art-character-pixel';
+import { APP_VERSION } from '../../app-version';
 
 const FONT = '"Arial Rounded MT Bold", "Noto Sans KR", sans-serif';
 const INK = '#3b2531';
@@ -78,7 +79,7 @@ class SettingsDrawerScene extends Phaser.Scene {
     resetButton.on('pointerdown', () => this.openResetConfirm());
 
     // 버전·문의
-    this.add.text(195, 660, 'Dream Bike Garage Lab · v0.1.0-lab', { fontFamily: FONT, fontSize: '9px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3);
+    this.add.text(195, 660, `Dream Bike Garage · v${APP_VERSION}`, { fontFamily: FONT, fontSize: '9px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3);
     this.add.text(195, 676, '문의: 공방 게시판 (데모 표기)', { fontFamily: FONT, fontSize: '9px', color: '#ffe6a8', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3).setAlpha(0.85);
 
     this.toast = this.add.text(195, 716, '서랍을 열어 공방 설정을 조절해 보세요.', { fontFamily: FONT, fontSize: '10px', color: '#fff1c6', fontStyle: 'bold', align: 'center', wordWrap: { width: 340 } }).setOrigin(0.5, 0).setDepth(10);
