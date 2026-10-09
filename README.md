@@ -52,6 +52,21 @@ Day 5마다 홈 달력에서 진입하는 `리버사이드 3K` 자동 레이스�
 >
 > 설계·개발 방향 변경, 날짜별 진행 과정, 현재 상태와 최종 결과물은 **[Notion 프로젝트 진행 대시보드에서 확인하세요 →](https://held-spaghetti-47e.notion.site/Dream-Bike-Garage-3b1ec666c8bb8051a5b9edaf4129a4b3)**
 
+## 휴대폰에서 플레이해 보기
+
+휴대폰 카메라로 QR을 찍으면 바로 열립니다.
+
+| 앱인토스 테스트 (토스 앱) | 안드로이드 테스트 APK | 웹 (GitHub Pages) |
+|:---:|:---:|:---:|
+| <img src="docs/assets/qr/apps-in-toss-test.png" width="180" alt="앱인토스 테스트 QR" /> | <img src="docs/assets/qr/android-test-apk.png" width="180" alt="안드로이드 테스트 APK QR" /> | <img src="docs/assets/qr/web.png" width="180" alt="웹 버전 QR" /> |
+| 토스 앱 안에서 실행되는 출시 형태 | 일반 안드로이드 앱으로 설치 | 브라우저에서 바로 플레이 |
+| 2026-10-09 업로드 · main `8cf2d36` | 항상 main 최신 빌드 | 항상 main 최신 빌드 |
+
+- **앱인토스 테스트**: 토스 앱 최신 버전에서 열립니다. 앱인토스 콘솔에 새로 업로드할 때마다 테스트 주소가 바뀌므로, 업로드 후 이 QR(`docs/assets/qr/apps-in-toss-test.png`)과 날짜를 함께 갱신합니다. 테스트 업로드라 앱인토스 검색·목록에는 노출되지 않습니다.
+- **안드로이드 테스트 APK**: [직접 받기](https://github.com/aigemro/dream-bike-garage/releases/download/android-test-latest/dream-bike-garage-test.apk). 처음 한 번 "출처를 알 수 없는 앱 설치"를 허용해야 합니다. 새 빌드는 덮어쓰기로 설치되고 진행이 유지됩니다. 자세한 내용은 [안드로이드 테스트 APK](docs/development/ANDROID_TEST_APK.md)를 참고하세요.
+- **웹**: https://aigemro.github.io/dream-bike-garage/
+- 세 환경의 게임 진행 저장은 서로 따로입니다.
+
 ## 시작하기
 
 ```bash
@@ -70,7 +85,7 @@ npm run build
 
 TypeScript · Vite · Phaser · Vitest · GitHub Actions · GitHub Pages
 
-웹 MVP 검증 후 모바일 출시를 위한 Capacitor 적용을 검토합니다.
+출시는 앱인토스(`@apps-in-toss/web-framework`, [SDK 설정](docs/development/APPS_IN_TOSS_SDK_SETUP.md))로 하고, 휴대폰 테스트용 안드로이드 APK는 Capacitor로 만듭니다.
 
 ## 협업
 
