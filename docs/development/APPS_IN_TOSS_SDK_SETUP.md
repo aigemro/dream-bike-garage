@@ -28,6 +28,14 @@
 
 토스 앱 실기기 확인은 콘솔에 번들을 올린 뒤 테스트 QR로 합니다. 3.x에는 샌드박스 앱이 없습니다.
 
+업로드하면 테스트 주소(`intoss-private://dream-bike-garage?_deploymentId=…`)가 새로 나옵니다. README의 앱인토스 테스트 QR을 새 주소로 갱신합니다.
+
+```bash
+npx --yes qrcode@1.5.4 -w 360 -o docs/assets/qr/apps-in-toss-test.png "<테스트 주소>"
+```
+
+README 표의 업로드 날짜와 커밋도 함께 바꿉니다.
+
 ## 3. 플랫폼 어댑터와 저장
 
 게임 코드는 `src/platform`의 `GamePlatform` 인터페이스만 쓰고, SDK는 `apps-in-toss-platform.ts`에서만 호출합니다. 앱인토스 빌드(`--mode toss`)일 때만 이 파일을 불러오므로 웹 빌드에는 SDK가 들어가지 않습니다(앱인토스 번들에서 별도 조각, gzip 약 20KB).
