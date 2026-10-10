@@ -29,7 +29,8 @@ import {
   undoLast,
   type Installed,
   type WorkbenchEvent,
-  type WorkbenchOrder,
+  orderListOf,
+  type WorkbenchOrders,
   type WorkbenchPart,
   type WorkbenchPartType,
   type WorkbenchState,
@@ -82,7 +83,8 @@ export type WorkbenchDaySummary = { dayNumber: number; done: number; target: num
 
 export type MergeWorkbenchScreenHooks = {
   workbench: WorkbenchState;
-  orders: readonly WorkbenchOrder[];
+  // 영업일 순서의 주문표(또는 단순 목록). 누적 주문 순번 → 위치 변환은 도메인 orderIndexOf가 담당합니다.
+  orders: WorkbenchOrders;
   getDay: () => WorkbenchDaySummary;
   // 거짓이면 상자 열기·합성·반품·되돌리기를 받지 않습니다 (하루 마감·일시정지).
   canPlay: () => boolean;
@@ -408,7 +410,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
 
   private orderSpec(order: number) {
     const orderIndex = orderIndexOf(order, this.hooks.orders);
-    return { orderIndex, spec: this.hooks.orders[orderIndex], meta: orderMetaAt(orderIndex) };
+    return { orderIndex, spec: orderListOf(this.hooks.orders)[orderIndex], meta: orderMetaAt(orderIndex) };
   }
 
   private renderOrder() {

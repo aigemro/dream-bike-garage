@@ -291,19 +291,41 @@ describe('다음 목표 결정 규칙 (#205 → #221 개편)', () => {
     [0, 0].forEach((index) => applyOrderDelivery(collection, index));
     expect(computeNextGoal(collection, createGrowthProgress())).toMatchObject({ kind: 'craft', bikeId: 'urban-road' });
     CRAFT_PART_TYPES.forEach((part) => applyCraftPart(collection, 9_999, 'urban-road', part));
-    expect(computeNextGoal(collection, createGrowthProgress())).toMatchObject({ kind: 'understand', orderIndex: 1, bikeId: 'trail-mtb' });
+    // 코인이 없으면(0) 대표 자전거 강화 안내를 건너뛰고 다음 미등록 자전거 학습을 안내한다
+    expect(computeNextGoal(collection, createGrowthProgress(), 0)).toMatchObject({ kind: 'understand', orderIndex: 1, bikeId: 'trail-mtb' });
+    // 코인이 충분하면 먼저 대표 자전거(시작 보유 드림 로드)를 드림 단계까지 강화하라고 안내한다
+    expect(computeNextGoal(collection, createGrowthProgress(), 1000)).toMatchObject({ kind: 'upgrade', bikeId: 'dream-road', cost: 350 });
   });
 
-  it('3종 모두 등록되면 제작 → 완성 후 강화 → 모두 최대면 반복 안내로 전환된다', () => {
+  it('코인이 기준(5,000) 이상 쌓이면 납품 안내보다 보유 자전거 강화를 먼저 권한다 (적체 방지)', () => {
     const collection = createCollectionProgress();
-    [0, 0, 1, 1, 2, 2].forEach((index) => applyOrderDelivery(collection, index));
+    [0, 0].forEach((index) => applyOrderDelivery(collection, index));
+    CRAFT_PART_TYPES.forEach((part) => applyCraftPart(collection, 9_999, 'urban-road', part));
     const growth = createGrowthProgress();
-    // 등록·미완성 자전거가 있으므로 제작이 최우선 목표
+    // 대표 자전거를 드림 단계로 올린 뒤
+    growth.statsByBikeId['dream-road'] = { 성능: DREAM_STAT_MAX_LEVEL, 스타일: 3, 희귀도: 3 };
+    expect(computeNextGoal(collection, growth, 4_999).kind).toBe('understand');
+    expect(computeNextGoal(collection, growth, 5_000)).toMatchObject({ kind: 'upgrade', bikeId: 'dream-road', stat: '스타일' });
+    // 코인을 모르는 호출은 미등록 자전거가 남아 있는 동안 납품 안내를 유지한다
+    expect(computeNextGoal(collection, growth).kind).toBe('understand');
+  });
+
+  it('주문표의 자전거가 모두 등록되면 제작 → 완성 후 강화 → 모두 최대면 반복 안내로 전환된다', () => {
+    const collection = createCollectionProgress();
+    // 주문표에 등장하는 서로 다른 자전거마다 첫 주문을 2회 납품해 전부 등록한다
+    const bikeIds = [...new Set(ORDER_METAS.map((meta) => meta.bikeId))];
+    bikeIds.forEach((bikeId) => {
+      const index = ORDER_METAS.find((meta) => meta.bikeId === bikeId)!.orderIndex;
+      applyOrderDelivery(collection, index);
+      applyOrderDelivery(collection, index);
+    });
+    const growth = createGrowthProgress();
+    // 등록·미완성 자전거가 있으므로 제작이 최우선 목표(등록 순서상 첫 자전거)
     expect(computeNextGoal(collection, growth)).toMatchObject({ kind: 'craft', bikeId: 'urban-road' });
-    ORDER_METAS.forEach((meta) => CRAFT_PART_TYPES.forEach((part) => applyCraftPart(collection, 9_999, meta.bikeId, part)));
+    bikeIds.forEach((bikeId) => CRAFT_PART_TYPES.forEach((part) => applyCraftPart(collection, 99_999, bikeId, part)));
     // 완성 자전거 중 첫 자전거(시작 자전거)의 강화가 안내된다
     expect(computeNextGoal(collection, growth)).toMatchObject({ kind: 'upgrade', bikeId: 'dream-road' });
-    // 완성 자전거 4대를 모두 최대 단계로 올리면 반복 안내로 전환된다
+    // 완성 자전거를 모두 최대 단계로 올리면 반복 안내로 전환된다
     collection.craftedBikeIds.forEach((id) => {
       growth.statsByBikeId[id] = { 성능: DREAM_STAT_MAX_LEVEL, 스타일: DREAM_STAT_MAX_LEVEL, 희귀도: DREAM_STAT_MAX_LEVEL };
     });

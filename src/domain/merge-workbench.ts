@@ -24,6 +24,13 @@ const MISS_LIMIT = 4;
 
 /** 주문 1건의 부품별 요구 레벨과 납품 보상. 주문 목록은 호출 측(게임 데이터)이 넘깁니다. */
 export type WorkbenchOrder = { levels: Record<WorkbenchPartType, number>; reward: number };
+/**
+ * 영업일 순서대로 설계된 주문표. 누적 주문 순번이 주문표 끝을 지나면 `repeatFrom` 위치부터 끝까지를 반복합니다
+ * (설계가 끝난 뒤에도 후반 난이도·보상이 유지되고, 첫날 튜토리얼 주문으로 돌아가지 않습니다).
+ */
+export type WorkbenchSchedule = { readonly orders: readonly WorkbenchOrder[]; readonly repeatFrom: number };
+/** 작업대가 받는 주문 목록. 배열이면 처음부터 끝까지 순환하고, 주문표면 `repeatFrom` 규칙으로 반복합니다. */
+export type WorkbenchOrders = readonly WorkbenchOrder[] | WorkbenchSchedule;
 export type Installed = Record<WorkbenchPartType, boolean>;
 
 /** 되돌리기로 복구하는 범위. 체력·입고 기록은 되돌리지 않습니다. */
@@ -57,9 +64,27 @@ export type SupplyBlock = 'full' | 'energy';
 
 const noneInstalled = (): Installed => ({ frame: false, wheel: false, drivetrain: false, handlebar: false });
 
-/** 누적 주문 순번을 주문 목록 위치로 바꿉니다. */
-export function orderIndexOf(order: number, orders: readonly WorkbenchOrder[]): number {
-  return orders.length === 0 ? 0 : ((order % orders.length) + orders.length) % orders.length;
+const isSchedule = (orders: WorkbenchOrders): orders is WorkbenchSchedule => !Array.isArray(orders);
+
+/** 주문 목록을 평평한 배열로 돌려줍니다. */
+export function orderListOf(orders: WorkbenchOrders): readonly WorkbenchOrder[] {
+  return isSchedule(orders) ? orders.orders : orders;
+}
+
+/**
+ * 누적 주문 순번을 주문 목록 위치로 바꿉니다.
+ * - 배열: 끝에 닿으면 처음부터 순환합니다(이전 동작).
+ * - 주문표: 끝에 닿으면 `repeatFrom`부터 끝까지만 반복합니다. 설계 구간 안에서는 순번이 곧 위치입니다.
+ */
+export function orderIndexOf(order: number, orders: WorkbenchOrders): number {
+  const list = orderListOf(orders);
+  if (list.length === 0) return 0;
+  if (!isSchedule(orders)) return ((order % list.length) + list.length) % list.length;
+  const sequence = Math.max(0, Math.floor(order));
+  if (sequence < list.length) return sequence;
+  const repeatFrom = Math.min(list.length - 1, Math.max(0, Math.floor(orders.repeatFrom)));
+  const span = list.length - repeatFrom;
+  return repeatFrom + ((sequence - list.length) % span);
 }
 
 // 다음 입고 순서: 보드 가운데(2.5열, 3행)에서 가까운 칸부터 바깥 고리로 나갑니다.
@@ -88,7 +113,7 @@ export function starterBoard(): WorkbenchCell[] {
 }
 
 /** 새 작업대. order는 이어서 시작할 주문 순번입니다(기존 진행이 있는 플레이어의 주문 순서를 잇습니다). */
-export function createWorkbench(orders: readonly WorkbenchOrder[], now: number, order = 0): WorkbenchState {
+export function createWorkbench(orders: WorkbenchOrders, now: number, order = 0): WorkbenchState {
   const state: WorkbenchState = {
     version: 1,
     board: starterBoard(),
@@ -147,12 +172,16 @@ function pickInstall(board: readonly WorkbenchCell[], type: WorkbenchPartType, l
 }
 
 // 장착 → 납품 → 다음 주문 장착을 더 진행할 수 없을 때까지 정리합니다.
+// 한 행동에서는 납품을 1건만 확정합니다. 이월 부품으로 다음 주문까지 바로 완성되면 장착까지만 하고,
+// 그 납품은 다음 행동의 첫 정리에서 확정합니다(급여·Day 집계가 행동마다 1건씩 반영되고, 하루 마감 뒤 주문이 밀리지 않게).
 // 납품마다 부품 4개가 소비되므로 반복은 반드시 끝나며, 안전장치로 횟수를 제한합니다.
-function settle(state: WorkbenchState, orders: readonly WorkbenchOrder[], events: WorkbenchEvent[]) {
-  if (orders.length === 0) return;
+function settle(state: WorkbenchState, orders: WorkbenchOrders, events: WorkbenchEvent[]) {
+  const list = orderListOf(orders);
+  if (list.length === 0) return;
+  let delivered = 0;
   for (let guard = 0; guard <= WORKBENCH_CELLS; guard += 1) {
     const orderIndex = orderIndexOf(state.order, orders);
-    const spec = orders[orderIndex];
+    const spec = list[orderIndex];
     for (const type of WORKBENCH_PART_TYPES) {
       if (state.installed[type]) continue;
       const from = pickInstall(state.board, type, spec.levels[type]);
@@ -163,7 +192,9 @@ function settle(state: WorkbenchState, orders: readonly WorkbenchOrder[], events
       events.push({ type: 'installed', from, part: { ...part }, order: state.order });
     }
     if (!WORKBENCH_PART_TYPES.every((type) => state.installed[type])) return;
+    if (delivered >= 1) return;
     events.push({ type: 'delivered', order: state.order, orderIndex, reward: spec.reward });
+    delivered += 1;
     state.order += 1;
     state.installed = noneInstalled();
     state.misses = 0;
@@ -182,7 +213,7 @@ export function supplyBlock(state: WorkbenchState): SupplyBlock | null {
 }
 
 /** 부품 상자를 열어 다음 입고 칸에 부품 1개를 넣습니다. 무료 상자가 있으면 체력 대신 씁니다. 열 수 없으면 null */
-export function openPartBox(state: WorkbenchState, orders: readonly WorkbenchOrder[], now: number, rng: () => number = Math.random): WorkbenchEvent[] | null {
+export function openPartBox(state: WorkbenchState, orders: WorkbenchOrders, now: number, rng: () => number = Math.random): WorkbenchEvent[] | null {
   recoverEnergy(state, now);
   const index = nextIntakeSlot(state.board);
   if (supplyBlock(state)) return null;
@@ -242,7 +273,7 @@ function snapshot(state: WorkbenchSnapshot): WorkbenchSnapshot {
 }
 
 /** 이웃한 같은 부품 2개를 대상 칸(to)에서 합성합니다. 연쇄 기준에 닿으면 보너스를 지급합니다. 합성할 수 없으면 null */
-export function mergeParts(state: WorkbenchState, orders: readonly WorkbenchOrder[], from: number, to: number): WorkbenchEvent[] | null {
+export function mergeParts(state: WorkbenchState, orders: WorkbenchOrders, from: number, to: number): WorkbenchEvent[] | null {
   if (!canMerge(state.board, from, to)) return null;
   state.undo = snapshot(state);
   const part = { type: state.board[from]!.type, level: state.board[from]!.level + 1 };
@@ -303,7 +334,7 @@ function validSnapshot(value: unknown): value is WorkbenchSnapshot {
  * 저장된 작업대(JSON 문자열 또는 객체)를 복구합니다. 저장이 없거나 손상됐으면 fallbackOrder 주문부터 새 작업대로 시작합니다.
  * 체력은 저장 이후 흐른 실제 시간만큼 회복합니다.
  */
-export function parseWorkbench(saved: unknown, orders: readonly WorkbenchOrder[], now: number, fallbackOrder = 0): WorkbenchState {
+export function parseWorkbench(saved: unknown, orders: WorkbenchOrders, now: number, fallbackOrder = 0): WorkbenchState {
   try {
     const value = (typeof saved === 'string' ? JSON.parse(saved) : saved) as Partial<WorkbenchState> | null | undefined;
     if (!value || value.version !== 1 || !validSnapshot(value as unknown)

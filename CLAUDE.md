@@ -38,6 +38,7 @@
 | 주간 목요일 회의 운영 | [docs/development/WEEKLY_SYNC.md](docs/development/WEEKLY_SYNC.md) |
 | 코드 구조 원칙 | [docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md) |
 | 머지 작업대(E안)·Day 세션 적용 | [docs/development/MERGE_WORKBENCH_DAY_SESSION.md](docs/development/MERGE_WORKBENCH_DAY_SESSION.md) |
+| 레벨 디자인(영업일 주문표·챕터·드림 해금·경제 곡선) | [docs/game-design/LEVEL_DESIGN.md](docs/game-design/LEVEL_DESIGN.md) · 데이터 `src/data/level-design.ts` |
 | AI 도구 병행 운영(Claude/Codex) | [docs/development/AI_ASSISTANT_WORKFLOW.md](docs/development/AI_ASSISTANT_WORKFLOW.md) |
 | 앱인토스 출시 가이드 | [docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md](docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md) |
 | 앱인토스 SDK 설정·빌드 명령·화면 맞춤 | [docs/development/APPS_IN_TOSS_SDK_SETUP.md](docs/development/APPS_IN_TOSS_SDK_SETUP.md) |

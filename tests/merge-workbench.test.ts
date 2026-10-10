@@ -238,3 +238,30 @@ describe('저장·복구', () => {
     expect(parseWorkbench(JSON.stringify(badPart), ORDERS, NOW, 3).order).toBe(3);
   });
 });
+
+describe('한 행동 납품 1건', () => {
+  it('이월 부품으로 다음 주문까지 완성돼도 납품은 다음 행동의 첫 정리에서 확정한다', () => {
+    const EASY: WorkbenchOrder[] = [
+      { levels: { frame: 2, wheel: 1, drivetrain: 1, handlebar: 1 }, reward: 100 },
+      { levels: { frame: 1, wheel: 1, drivetrain: 1, handlebar: 1 }, reward: 200 },
+    ];
+    const state = createWorkbench(EASY, NOW);
+    clearBoard(state);
+    state.installed = { frame: false, wheel: true, drivetrain: true, handlebar: true };
+    // 합성할 프레임 Lv.1 2개 + 다음 주문을 바로 채우는 Lv.1 4종
+    state.board[0] = { type: 'frame', level: 1 };
+    state.board[1] = { type: 'frame', level: 1 };
+    state.board[12] = { type: 'frame', level: 1 };
+    state.board[13] = { type: 'wheel', level: 1 };
+    state.board[14] = { type: 'drivetrain', level: 1 };
+    state.board[15] = { type: 'handlebar', level: 1 };
+    const events = mergeParts(state, EASY, 0, 1)!;
+    expect(events.filter((event) => event.type === 'delivered')).toEqual([{ type: 'delivered', order: 0, orderIndex: 0, reward: 100 }]);
+    // 다음 주문은 장착까지만 되고 납품은 보류된다
+    expect(state.order).toBe(1);
+    expect(state.installed).toEqual({ frame: true, wheel: true, drivetrain: true, handlebar: true });
+    const next = openPartBox(state, EASY, NOW, sequence(0.5))!;
+    expect(next.find((event) => event.type === 'delivered')).toMatchObject({ order: 1, orderIndex: 1, reward: 200 });
+    expect(state.order).toBe(2);
+  });
+});
