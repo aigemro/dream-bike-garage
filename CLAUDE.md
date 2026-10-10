@@ -44,6 +44,7 @@
 | 앱인토스 SDK 설정·빌드 명령·화면 맞춤 | [docs/development/APPS_IN_TOSS_SDK_SETUP.md](docs/development/APPS_IN_TOSS_SDK_SETUP.md) |
 | 안드로이드 테스트 APK (휴대폰 앱 형태 테스트) | [docs/development/ANDROID_TEST_APK.md](docs/development/ANDROID_TEST_APK.md) |
 | 웹·앱 화면 구조 전략 | [docs/development/SCREEN_LAYOUT_STRATEGY.md](docs/development/SCREEN_LAYOUT_STRATEGY.md) |
+| UI 스타일 가이드(화면 공통 규칙) | [docs/design/UI_STYLE_GUIDE.md](docs/design/UI_STYLE_GUIDE.md) |
 | 에셋(디자인·사운드) 운영 | [docs/development/ASSET_WORKFLOW.md](docs/development/ASSET_WORKFLOW.md) |
 | 레이스 라이더 모션(바퀴·페달링·자세) | [docs/development/RACE_RIDER_MOTION.md](docs/development/RACE_RIDER_MOTION.md) |
 | 웹 우선 결정 배경 | [docs/decisions/0001-web-first.md](docs/decisions/0001-web-first.md) |

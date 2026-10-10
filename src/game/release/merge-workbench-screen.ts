@@ -48,6 +48,8 @@ const GOLD = 0xf6d995;
 const BORDER = 0x3b2531;
 const BROWN = 0x8e5136;
 const DARK_WOOD = 0x573044;
+// 팔레트 FLOOR: 상자 아이콘 몸통 색 (첫 플레이 안내 오버레이와 동일)
+const FLOOR = 0xb66f45;
 const RED = 0xc95746;
 const GREEN = 0x5e9a67;
 const AMBER = 0xf4b84a;
@@ -223,10 +225,12 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.add.rectangle(42, 16, 60, 18, RED).setStrokeStyle(2, BORDER).setDepth(9);
     this.add.text(42, 16, 'WORK', textStyle(10, CREAM_TEXT)).setOrigin(0.5).setDepth(10);
     this.add.text(80, 9, '두리 자전거 공방 · 작업대', textStyle(12, INK)).setDepth(10);
+    // 홈 버튼: 시각 크기는 60×20이지만 터치 영역은 64×44로 넓힙니다.
+    // hitArea는 버튼 좌상단 기준 로컬 좌표라, y −6부터 44px이면 월드 y 0~44가 되어 캔버스 위로 잘리지 않습니다.
     this.add.rectangle(350, 16, 60, 20, GOLD).setStrokeStyle(2, BORDER).setDepth(9)
-      .setInteractive({ useHandCursor: true })
+      .setInteractive({ hitArea: new Phaser.Geom.Rectangle(-2, -6, 64, 44), hitAreaCallback: Phaser.Geom.Rectangle.Contains, useHandCursor: true })
       .on('pointerdown', () => { this.hooks.onSfx?.('tap'); this.hooks.onHome(); });
-    this.add.text(350, 16, '← 홈', textStyle(10, INK)).setOrigin(0.5).setDepth(10);
+    this.add.text(350, 16, '← 홈', textStyle(11, INK)).setOrigin(0.5).setDepth(10);
     this.add.rectangle(48, 41, 72, 22, BROWN).setStrokeStyle(2, BORDER).setDepth(9);
     this.dayBadge = this.add.text(48, 41, '', textStyle(12, CREAM_TEXT)).setOrigin(0.5).setDepth(10);
     this.dayOrdersPanel = this.add.rectangle(130, 41, 76, 24, AMBER).setStrokeStyle(2, BORDER).setDepth(9);
@@ -241,15 +245,15 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private drawOrderCard() {
     this.add.rectangle(195, 138, 374, 140, CREAM).setStrokeStyle(4, BROWN).setDepth(2);
     this.add.rectangle(64, 78, 88, 22, RED).setStrokeStyle(2, BORDER).setDepth(3);
-    this.add.text(64, 78, 'NEW ORDER', textStyle(9, CREAM_TEXT)).setOrigin(0.5).setDepth(4);
+    this.add.text(64, 78, 'NEW ORDER', textStyle(10, CREAM_TEXT)).setOrigin(0.5).setDepth(4);
     this.orderTitle = this.add.text(20, 94, '', textStyle(15, INK)).setDepth(4);
-    this.orderProgress = this.add.text(20, 117, '', textStyle(10, MUTED)).setDepth(4);
-    this.orderReward = this.add.text(BIKE_X, 186, '', textStyle(10, '#a16028')).setOrigin(0.5).setDepth(4);
+    this.orderProgress = this.add.text(20, 117, '', textStyle(11, MUTED)).setDepth(4);
+    this.orderReward = this.add.text(BIKE_X, 186, '', textStyle(11, '#a16028')).setOrigin(0.5).setDepth(4);
     WORKBENCH_PART_TYPES.forEach((type) => {
       const { x, y } = this.chipCenter(type);
       const panel = this.add.rectangle(x, y, 42, 40, GOLD).setStrokeStyle(2, WARM_PART_COLORS[type]).setDepth(3);
       drawPixelPartIcon(this, x, y - 9, 1.5, type, { depth: 4 });
-      const status = this.add.text(x, y + 11, '', textStyle(9, MUTED)).setOrigin(0.5).setDepth(4);
+      const status = this.add.text(x, y + 11, '', textStyle(11, MUTED)).setOrigin(0.5).setDepth(4);
       this.chips.set(type, { panel, status });
     });
   }
@@ -275,17 +279,19 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.nextMarker = this.add.container(0, 0, [
       dashes,
       this.drawBoxIcon(0, -6, 1.5),
-      this.add.text(0, 12, '다음 입고', textStyle(8, MUTED)).setOrigin(0.5),
+      this.add.text(0, 12, '다음 입고', textStyle(9, MUTED)).setOrigin(0.5),
     ]).setDepth(3);
     if (!this.reducedMotion) this.tweens.add({ targets: this.nextMarker, alpha: { from: 1, to: 0.45 }, duration: 700, yoyo: true, repeat: -1 });
     this.highlight = this.add.graphics().setDepth(5);
     this.dropHint = this.add.graphics().setDepth(6);
 
-    this.info = this.add.text(12, BOARD_BOTTOM + 12, '', { ...textStyle(10, CREAM_TEXT, false), wordWrap: { width: 270 }, lineSpacing: 3 }).setDepth(10);
+    // 안내 문구 11px: 줄바꿈 폭 258은 오른쪽 '× 선택 취소' 버튼 왼쪽 가장자리(282)와 12px 이상 띄우기 위한 값이고,
+    // 시작 y는 보드 테두리 아래 4px 여백을 두되 3줄까지 선반 상단(668-11)에 닿지 않도록 줄 간격 2를 유지합니다.
+    this.info = this.add.text(12, BOARD_BOTTOM + 10, '', { ...textStyle(11, CREAM_TEXT, false), wordWrap: { width: 258 }, lineSpacing: 2 }).setDepth(10);
     this.cancelButton = this.add.rectangle(334, BOARD_BOTTOM + 38, 104, 44, BROWN).setStrokeStyle(2, CREAM).setDepth(10)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => this.deselect());
-    this.cancelLabel = this.add.text(334, BOARD_BOTTOM + 38, '× 선택 취소', textStyle(10, CREAM_TEXT)).setOrigin(0.5).setDepth(11);
+    this.cancelLabel = this.add.text(334, BOARD_BOTTOM + 38, '× 선택 취소', textStyle(11, CREAM_TEXT)).setOrigin(0.5).setDepth(11);
   }
 
   // 택배 상자 픽셀 아이콘 (부품 아이콘과 같은 잉크 외곽선 톤)
@@ -293,8 +299,8 @@ class MergeWorkbenchScene extends Phaser.Scene {
     const g = this.add.graphics();
     const px = (cx: number, cy: number, w: number, h: number, color: number) => g.fillStyle(color, 1).fillRect(x + cx * cell, y + cy * cell, w * cell, h * cell);
     px(-7, -5, 14, 11, BORDER);
-    px(-6, -4, 12, 9, 0xd39a5c);
-    px(-6, -4, 12, 3, 0xb7783f);
+    px(-6, -4, 12, 9, FLOOR);
+    px(-6, -4, 12, 3, BROWN);
     px(-1, -4, 2, 9, GOLD);
     px(-5, 2, 3, 1, CREAM);
     return g;
@@ -306,15 +312,15 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.add.rectangle(96, SHELF_TOP, 152, 22, BROWN).setDepth(3);
     this.add.text(28, SHELF_TOP - 7, '부품 상자 · PARTS BOX', textStyle(10, CREAM_TEXT)).setDepth(4);
     this.add.rectangle(282, SHELF_TOP, 200, 22, BROWN).setStrokeStyle(2, BORDER).setDepth(3);
-    this.add.text(282, SHELF_TOP, `${COMBO_FREE_BOX}연쇄 무료 상자 · ${COMBO_GUARANTEE}연쇄 필수 부품`, textStyle(9, CREAM_TEXT)).setOrigin(0.5).setDepth(4);
+    this.add.text(282, SHELF_TOP, `${COMBO_FREE_BOX}연쇄 무료 상자 · ${COMBO_GUARANTEE}연쇄 필수 부품`, textStyle(10, CREAM_TEXT)).setOrigin(0.5).setDepth(4);
 
     this.boxButton = this.add.rectangle(BOX.x, BOX.y, BOX.w, BOX.h, GOLD).setStrokeStyle(3, BROWN).setDepth(3)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => this.onOpenBox());
     this.drawBoxIcon(BOX.x - BOX.w / 2 + 26, BOX.y, 2).setDepth(4);
     this.boxTitle = this.add.text(BOX.x - BOX.w / 2 + 48, BOX.y - 17, '부품 상자 열기', textStyle(12, INK)).setDepth(4);
-    this.boxStatus = this.add.text(BOX.x - BOX.w / 2 + 48, BOX.y + 2, '', textStyle(9, MUTED, false)).setDepth(4);
-    this.boxCost = this.add.text(BOX.x + BOX.w / 2 - 8, BOX.y - 17, '', textStyle(9, ALERT)).setOrigin(1, 0).setDepth(4);
+    this.boxStatus = this.add.text(BOX.x - BOX.w / 2 + 48, BOX.y + 2, '', textStyle(10, MUTED, false)).setDepth(4);
+    this.boxCost = this.add.text(BOX.x + BOX.w / 2 - 8, BOX.y - 17, '', textStyle(11, ALERT)).setOrigin(1, 0).setDepth(4);
 
     [this.undoButton, this.undoLabel] = this.smallButton(290, '↶\n되돌리기', () => this.onUndo());
     [this.returnButton, this.returnLabel] = this.smallButton(350, '↗\n반품', () => this.onReturn());
@@ -338,15 +344,21 @@ class MergeWorkbenchScene extends Phaser.Scene {
     const button = this.add.rectangle(x, ROW1_Y, 56, 48, BROWN).setStrokeStyle(2, BORDER).setDepth(3)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', handler);
-    const text = this.add.text(x, ROW1_Y, label, { ...textStyle(9, CREAM_TEXT), align: 'center', lineSpacing: 2 }).setOrigin(0.5).setDepth(4);
+    const text = this.add.text(x, ROW1_Y, label, { ...textStyle(11, CREAM_TEXT), align: 'center', lineSpacing: 2 }).setOrigin(0.5).setDepth(4);
     return [button, text];
+  }
+
+  // 작은 버튼 상태 표시: 비활성은 PAPER 반투명 바탕 + INK 글자로 라벨이 읽히게, 활성은 갈색 바탕 + 크림 글자로 대비를 줍니다.
+  private styleSmallButton(button: Phaser.GameObjects.Rectangle, label: Phaser.GameObjects.Text, enabled: boolean, fill = BROWN) {
+    button.setFillStyle(enabled ? fill : GOLD, enabled ? 1 : 0.6).setStrokeStyle(2, BORDER, enabled ? 1 : 0.5);
+    label.setColor(enabled ? CREAM_TEXT : INK).setAlpha(enabled ? 1 : 0.55);
   }
 
   private infoPanel(x: number) {
     this.add.rectangle(x, ROW2_Y, 172, 48, GOLD).setStrokeStyle(2, BROWN).setDepth(3);
     return {
       title: this.add.text(x - 80, ROW2_Y - 18, '', textStyle(11, INK)).setDepth(4),
-      sub: this.add.text(x - 80, ROW2_Y - 1, '', textStyle(9, MUTED, false)).setDepth(4),
+      sub: this.add.text(x - 80, ROW2_Y - 2, '', textStyle(10, MUTED, false)).setDepth(4),
     };
   }
 
@@ -360,8 +372,8 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private makePiece(part: WorkbenchPart, at: Point) {
     const block = this.add.rectangle(0, 0, CELL - GAP * 2, CELL - GAP * 2, WARM_PART_COLORS[part.type]).setStrokeStyle(3, BORDER);
     const icon = drawPixelPartIcon(this, 0, -8, 2, part.type, { level: part.level });
-    const badge = this.add.rectangle(0, 14, 32, 18, CREAM, 0.94).setStrokeStyle(2, BORDER, 0.8);
-    const tag = this.add.text(0, 14, `Lv.${part.level}`, textStyle(10, INK)).setOrigin(0.5);
+    const badge = this.add.rectangle(0, 14, 34, 18, CREAM, 0.94).setStrokeStyle(2, BORDER, 0.8);
+    const tag = this.add.text(0, 14, `Lv.${part.level}`, textStyle(11, INK)).setOrigin(0.5);
     return this.add.container(at.x, at.y, [block, icon, badge, tag]).setDepth(2);
   }
 
@@ -445,13 +457,11 @@ class MergeWorkbenchScene extends Phaser.Scene {
       .setColor(block ? ALERT : free || sure ? SUCCESS : MUTED);
     this.boxCost.setText(free ? `무료 ×${this.state.freeBoxes}` : '⚡ −1').setColor(free ? SUCCESS : ALERT);
 
-    const canUndo = Boolean(this.state.undo);
-    this.undoButton.setAlpha(canUndo ? 1 : 0.45);
-    this.undoLabel.setAlpha(canUndo ? 1 : 0.6);
+    this.styleSmallButton(this.undoButton, this.undoLabel, Boolean(this.state.undo));
     const canReturn = this.selected !== NONE && !!this.state.board[this.selected];
     const confirming = canReturn && this.time.now < this.returnConfirmUntil;
-    this.returnButton.setFillStyle(confirming ? RED : BROWN).setAlpha(canReturn ? 1 : 0.45);
-    this.returnLabel.setText(confirming ? '한 번 더\n눌러 반품' : '↗\n반품').setAlpha(canReturn ? 1 : 0.6);
+    this.styleSmallButton(this.returnButton, this.returnLabel, canReturn, confirming ? RED : BROWN);
+    this.returnLabel.setText(confirming ? '한 번 더\n눌러 반품' : '↗\n반품');
 
     this.energyTitle.setText(`⚡ 알바 체력 ${this.state.energy}/${ENERGY_MAX}`);
     this.energySub.setText(this.state.energy >= ENERGY_MAX ? '가득 참' : `다음 +1 ${clockLabel(msUntilNextEnergy(this.state, now))}`);
