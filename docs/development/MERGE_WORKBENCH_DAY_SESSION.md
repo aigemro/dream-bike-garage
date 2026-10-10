@@ -25,11 +25,14 @@ Lab 코드를 복사하지 않고, 채택한 규칙만 메인 구조(`src/domain
 | `src/domain/merge-workbench.ts` | 작업대 규칙(입고 순서·합성·장착·납품 확정·연쇄 보너스·체력·되돌리기·저장 복구). 코인·Day는 다루지 않음 |
 | `src/domain/day-session.ts` | Day 규칙(준비 → 영업 중 ⇄ 일시정지 → 마감 → 정산 → 다음 Day). 기존 `src/game/release/day-session.ts`를 대체 |
 | `src/game/release/release-state.ts` | 저장 상태 v4와 이전 저장(v2·v3) 이전 |
-| `src/game/release/workbench-orders.ts` | 주문 메타를 작업대 주문 형태로 변환 |
+| `src/data/level-design.ts` · `src/domain/progression.ts` | 영업일 주문표(레벨 디자인) 데이터와 순번↔영업일·검증 규칙 ([레벨 디자인 문서](../game-design/LEVEL_DESIGN.md)) |
+| `src/game/release/workbench-orders.ts` | 주문표를 작업대가 받는 `WorkbenchSchedule`(주문 목록 + 반복 시작 순번)로 내보냄 |
 | `src/game/release/merge-workbench-screen.ts` | 작업대 화면(390×810, 게임 화면 B안과 같은 배치·팔레트) |
 | `src/game/release/mvp-release-integration.ts` | 화면 전환, 납품 반영(코인·이해도·Day 통계), 일시정지·정산 |
 
-주문별 부품 요구 레벨은 `meta-progress.ts`의 `ORDER_METAS[].partLevels`가 단일 출처입니다. 이전 게임 화면이 쓰는 `merge-prototype.ts`의 `ORDERS`도 여기서 만듭니다.
+작업대는 한 행동(상자 열기·합성)에 납품을 1건만 확정합니다. 이월 부품으로 다음 주문까지 바로 완성되면 장착까지만 하고, 그 납품은 다음 행동의 첫 정리에서 확정합니다(급여·Day 집계가 행동마다 1건씩 반영되고, 하루 마감 뒤 주문표가 밀리지 않게).
+
+주문의 단일 출처는 `src/data/level-design.ts`의 영업일 주문표입니다. `meta-progress.ts`의 `ORDER_METAS`는 이 주문표를 누적 주문 순번 순서로 펼친 것이고(위치 = 순번, 31일차부터는 21~30일차 반복), 작업대·홈·정산 화면이 모두 여기서 이름·카테고리·요구 레벨·보상을 읽습니다. 영업 d일차 = 순번 3(d−1)~3(d−1)+2이며, 저장 복구·다음 영업일 시작 때 작업대 순번을 Day 상태에 맞춥니다(`release-state.ts`의 `alignWorkbenchToDay`). 이전 게임 화면이 쓰는 `merge-prototype.ts`의 `ORDERS`는 더 이상 쓰지 않습니다.
 
 ## 3. 작업대 규칙과 수치
 

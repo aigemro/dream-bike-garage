@@ -1,7 +1,7 @@
 // #202 → #221 개편: 주문 납품 이해도 → 도감 등록 → 성장 전체 메타 루프 검증 테스트
 // 릴리스 통합 컨트롤러(mvp-release-integration)가 수행하는 상태 전이를
 // meta-progress 순수 로직 수준에서 처음부터 끝까지 시뮬레이션합니다.
-// (부품 제작·완성 승격 시나리오는 #222에서 추가합니다.)
+// 주문은 레벨 디자인 주문표(ORDER_METAS = 영업일 순서)에서 가져오며, 자전거별 첫 주문 위치를 찾아 씁니다.
 import { describe, expect, it } from 'vitest';
 import { CATALOG_SIZE } from '../src/game/release/bike-catalog';
 import {
@@ -15,6 +15,7 @@ import {
   applyOrderDelivery,
   bikeUnderstanding,
   computeNextGoal,
+  craftTotalCost,
   craftedBikeCount,
   createCollectionProgress,
   createGrowthProgress,
@@ -51,6 +52,11 @@ function makeStorage() {
   };
 }
 
+/** 주문표에서 이 자전거의 첫 주문 위치 */
+const firstOrderIndexFor = (bikeId: string) => ORDER_METAS.find((meta) => meta.bikeId === bikeId)!.orderIndex;
+// 주문표 앞쪽에 등장하는 서로 다른 자전거 3대(첫 주문은 항상 어반 로드)
+const FIRST_THREE_BIKES = [...new Set(ORDER_METAS.map((meta) => meta.bikeId))].slice(0, 3);
+
 describe('메타 루프 E2E: 새 게임 → 이해도 학습 → 등록 → 성장 → 반복 (#221)', () => {
   it('첫 납품부터 3종 등록·성장까지 전체 루프를 중단 없이 완주한다', () => {
     const storage = makeStorage();
@@ -60,12 +66,12 @@ describe('메타 루프 E2E: 새 게임 → 이해도 학습 → 등록 → 성�
     let growth = createGrowthProgress();
     let coins = 0;
     let completedOrders = 0;
-    let orderIndex = 0;
-    expect(computeNextGoal(collection, growth)).toMatchObject({ kind: 'understand', bikeId: 'urban-road', deliveriesLeft: 2 });
+    expect(FIRST_THREE_BIKES[0]).toBe('urban-road');
+    expect(computeNextGoal(collection, growth, coins)).toMatchObject({ kind: 'understand', bikeId: 'urban-road', orderIndex: 0, deliveriesLeft: 2 });
 
     // 2~3. 첫 납품 → 급여 + 이해도 50% (아직 도감 잠금)
-    const firstMeta = orderMetaAt(orderIndex)!;
-    const first = applyOrderDelivery(collection, orderIndex);
+    const firstMeta = orderMetaAt(0)!;
+    const first = applyOrderDelivery(collection, 0);
     coins += firstMeta.reward;
     completedOrders += 1;
     storage.save(collection, growth);
@@ -73,9 +79,10 @@ describe('메타 루프 E2E: 새 게임 → 이해도 학습 → 등록 → 성�
     expect(first.registeredNow).toBe(false);
     expect(isBikeRegistered(collection, 'urban-road')).toBe(false);
 
-    // 4. 같은 주문 반복 납품 → 이해도 100% 도감 등록 (반복 납품의 동기)
-    const second = applyOrderDelivery(collection, orderIndex);
-    coins += firstMeta.reward;
+    // 4. 같은 자전거의 두 번째 주문 납품 → 이해도 100% 도감 등록 (반복 납품의 동기)
+    const secondIndex = ORDER_METAS.find((meta) => meta.bikeId === 'urban-road' && meta.orderIndex > 0)!.orderIndex;
+    const second = applyOrderDelivery(collection, secondIndex);
+    coins += orderMetaAt(secondIndex)!.reward;
     completedOrders += 1;
     storage.save(collection, growth);
     expect(second.registeredNow).toBe(true);
@@ -92,7 +99,7 @@ describe('메타 루프 E2E: 새 게임 → 이해도 학습 → 등록 → 성�
     expect(upgrade.ok).toBe(true);
     if (upgrade.ok) { growth = upgrade.growth; coins = upgrade.coins; }
     storage.save(collection, growth);
-    expect(coins).toBe(firstMeta.reward * 2 - dreamUpgradeCost(1));
+    expect(coins).toBe(firstMeta.reward + orderMetaAt(secondIndex)!.reward - dreamUpgradeCost(1));
 
     // 7. 다음 목표가 등록된 자전거의 제작으로 갱신 (제작이 학습보다 우선)
     expect(computeNextGoal(collection, growth)).toMatchObject({ kind: 'craft', bikeId: 'urban-road', partName: '프레임' });
@@ -104,21 +111,25 @@ describe('메타 루프 E2E: 새 게임 → 이해도 학습 → 등록 → 성�
     collection = restored.collection;
     growth = restored.growth;
 
-    // 9. 주문 2·3을 각 2회씩 납품해 3종 모두 등록 (주문 순환 포함)
-    for (const index of [1, 1, 2, 2]) {
-      orderIndex = index;
-      const meta = orderMetaAt(index)!;
-      applyOrderDelivery(collection, index);
-      coins += meta.reward;
-      completedOrders += 1;
-      storage.save(collection, growth);
+    // 9. 다음 두 자전거를 각 2회씩 납품해 3종 모두 등록 (주문 위치는 주문표에서 찾는다)
+    let rewardsForTwo = 0;
+    for (const bikeId of FIRST_THREE_BIKES.slice(1)) {
+      const index = firstOrderIndexFor(bikeId);
+      for (let repeat = 0; repeat < 2; repeat += 1) {
+        applyOrderDelivery(collection, index);
+        coins += orderMetaAt(index)!.reward;
+        rewardsForTwo += orderMetaAt(index)!.reward;
+        completedOrders += 1;
+        storage.save(collection, growth);
+      }
     }
     expect(completedOrders).toBe(6);
-    ORDER_METAS.forEach((meta) => expect(isBikeRegistered(collection, meta.bikeId)).toBe(true));
+    FIRST_THREE_BIKES.forEach((bikeId) => expect(isBikeRegistered(collection, bikeId)).toBe(true));
     // 등록만으로는 수집 수가 늘지 않는다 (보유는 제작 완료 시)
     expect(craftedBikeCount(collection)).toBe(1);
 
     // 10. 급여로 등록 자전거 3종을 부품 하나씩 장착해 완성 (#222) — 다음 목표가 제작을 안내한다
+    const coinsBeforeCraft = coins;
     while (computeNextGoal(collection, growth).kind === 'craft') {
       const goal = computeNextGoal(collection, growth);
       if (goal.kind !== 'craft') break;
@@ -128,12 +139,28 @@ describe('메타 루프 E2E: 새 게임 → 이해도 학습 → 등록 → 성�
       if (result.ok) coins = result.coins;
       storage.save(collection, growth);
     }
-    // 부품 12개 = 3,000코인 소비, 3종 완성 → 수집 4/24, 전시 배치 가능
+    // 부품 12개 = 세 자전거의 등급별 제작비 합을 소비, 3종 완성 → 수집 4/24, 전시 배치 가능
     expect(craftedBikeCount(collection)).toBe(4);
-    ORDER_METAS.forEach((meta) => expect(isBikeCrafted(collection, meta.bikeId)).toBe(true));
-    expect(coins).toBe(8400 - dreamUpgradeCost(1) - 3000);
+    FIRST_THREE_BIKES.forEach((bikeId) => expect(isBikeCrafted(collection, bikeId)).toBe(true));
+    expect(coins).toBe(coinsBeforeCraft - FIRST_THREE_BIKES.reduce((sum, bikeId) => sum + craftTotalCost(bikeId), 0));
+    expect(rewardsForTwo).toBeGreaterThan(0);
 
-    // 11. 이후에도 다음 목표가 항상 존재한다 (강화 → 반복)
+    // 11. 이후에도 다음 목표가 항상 존재한다: (코인이 있으면 대표 자전거 강화) → 주문표의 나머지 자전거 학습 → 강화 → 반복
+    expect(computeNextGoal(collection, growth, coins)).toMatchObject({ kind: 'upgrade', bikeId: 'dream-road' });
+    expect(computeNextGoal(collection, growth, 0).kind).toBe('understand');
+    for (const bikeId of new Set(ORDER_METAS.map((meta) => meta.bikeId))) {
+      if (isBikeRegistered(collection, bikeId)) continue;
+      const index = firstOrderIndexFor(bikeId);
+      applyOrderDelivery(collection, index);
+      applyOrderDelivery(collection, index);
+      expect(isBikeRegistered(collection, bikeId)).toBe(true);
+    }
+    while (computeNextGoal(collection, growth).kind === 'craft') {
+      const goal = computeNextGoal(collection, growth);
+      if (goal.kind !== 'craft') break;
+      const result = applyCraftPart(collection, 99_999, goal.bikeId, CRAFT_PARTS.find((part) => part.name === goal.partName)!.type);
+      expect(result.ok).toBe(true);
+    }
     while (computeNextGoal(collection, growth).kind === 'upgrade') {
       const goal = computeNextGoal(collection, growth);
       if (goal.kind !== 'upgrade') break;
@@ -187,7 +214,8 @@ describe('메타 루프 E2E: 새 게임 → 이해도 학습 → 등록 → 성�
   it('새 게임 초기화 시 이해도·등록·성장·다음 목표가 처음 상태로 돌아간다', () => {
     const storage = makeStorage();
     const collection = createCollectionProgress();
-    [0, 0, 1, 1].forEach((index) => applyOrderDelivery(collection, index));
+    const trailIndex = firstOrderIndexFor('trail-mtb');
+    [0, 0, trailIndex, trailIndex].forEach((index) => applyOrderDelivery(collection, index));
     let growth = createGrowthProgress();
     growth.statsByBikeId['dream-road'] = { 성능: DREAM_STAT_MAX_LEVEL, 스타일: 2, 희귀도: 2 };
     storage.save(collection, growth);

@@ -14,6 +14,7 @@ import {
   ORDER_METAS,
   applyCraftPart,
   applyBikeUpgrade,
+  applyDreamBikeUnlocks,
   applyOrderDelivery,
   computeNextGoal,
   craftedBikeCount,
@@ -36,8 +37,10 @@ import {
   type OrderDeliveryResult,
 } from './meta-progress';
 import { CATALOG_SIZE, catalogBikeById } from './bike-catalog';
-import { WORKBENCH_ORDERS } from './workbench-orders';
-import { RELEASE_STORAGE_KEY, createReleaseState, restoreReleaseState, type ReleaseState } from './release-state';
+import { WORKBENCH_SCHEDULE } from './workbench-orders';
+import { RELEASE_STORAGE_KEY, alignWorkbenchToDay, createReleaseState, restoreReleaseState, type ReleaseState } from './release-state';
+import { orderIndexOf } from '../../domain/merge-workbench';
+import { firstSequenceOfDay } from '../../domain/progression';
 import { createPlatform, type GamePlatform, type HapticKind, type Unsubscribe } from '../../platform';
 import { SaveStore } from '../../platform/save-store';
 import { bindSafeAreaCss } from '../../platform/safe-area-css';
@@ -94,6 +97,8 @@ export class MvpReleaseIntegrationController {
   // 자전거별 성장 상태: 급여 투자 결과가 저장·복구되는 성장 루프
   private growth: GrowthProgress;
   private dayDeliveries: DayDelivery[] = [];
+  // 오늘 납품으로 도감 등록된 드림 등급 자전거 (하루 정산 화면 표시용 · 저장하지 않음)
+  private dayDreamUnlocks: string[] = [];
   private settleTimer?: number;
   private activeTimer?: number;
   private activeSince = 0;
@@ -245,7 +250,7 @@ export class MvpReleaseIntegrationController {
       this.openToday();
       this.game = startMergeWorkbenchScreen(this.stageId, {
         workbench: this.state.workbench,
-        orders: WORKBENCH_ORDERS,
+        orders: WORKBENCH_SCHEDULE,
         getDay: () => ({
           dayNumber: this.state.day.dayNumber,
           done: this.state.day.ordersCompleted,
@@ -302,11 +307,15 @@ export class MvpReleaseIntegrationController {
         dreamStats: bikeStats(this.growth, this.collection.selectedBikeId),
         onDreamUpgrade: (stat: DreamStatKey) => {
           const result = applyBikeUpgrade(this.collection, this.growth, this.state.coins, this.collection.selectedBikeId, stat);
+          let dreamUnlockedBikeIds: string[] = [];
           if (result.ok) {
             this.growth = result.growth;
             this.state.coins = result.coins;
             this.saveGrowth();
             this.saveState();
+            // 승급 보상: 같은 카테고리 드림 등급 자전거가 조건을 채우면 도감 등록 (레벨 디자인 규칙)
+            dreamUnlockedBikeIds = applyDreamBikeUnlocks(this.collection, this.growth);
+            if (dreamUnlockedBikeIds.length > 0) this.saveCollection();
             this.refreshShell();
           }
           return {
@@ -315,6 +324,7 @@ export class MvpReleaseIntegrationController {
             coins: result.coins,
             stats: { ...result.stats },
             stageUp: result.ok ? result.stageUp : false,
+            dreamUnlockedBikeNames: dreamUnlockedBikeIds.map((id) => catalogBikeById(id)?.name ?? id),
           };
         },
         onHome: () => this.show('home'),
@@ -412,8 +422,11 @@ export class MvpReleaseIntegrationController {
     this.state.day = recorded.day;
     this.state.coins += reward;
     this.state.completedOrders += 1;
-    this.state.orderIndex = (orderIndex + 1) % ORDER_METAS.length;
+    // 작업대는 납품 확정과 함께 순번을 이미 다음 주문으로 옮겼으므로, 그 위치를 홈·정산 표시용 주문 위치로 씁니다.
+    this.state.orderIndex = orderIndexOf(this.state.workbench.order, WORKBENCH_SCHEDULE);
     this.dayDeliveries.push({ ...applyOrderDelivery(this.collection, orderIndex), orderIndex });
+    // 카테고리 전부 등록을 조건으로 하는 드림 해금은 납품 직후에도 열릴 수 있습니다. 하루 정산 화면에서 알립니다.
+    this.dayDreamUnlocks.push(...applyDreamBikeUnlocks(this.collection, this.growth));
     this.saveCollection();
     this.saveState();
     if (!recorded.targetReached) return;
@@ -446,7 +459,9 @@ export class MvpReleaseIntegrationController {
     const highlight = this.dayDeliveries.find((delivery) => delivery.registeredNow) ?? this.dayDeliveries.at(-1);
     const nextDay = day.dayNumber + 1;
     const daysToRace = daysUntilRace(nextDay, RIVERSIDE_ENDURANCE_RACE);
-    const nextOrder = orderMetaAt(this.state.orderIndex);
+    // 다음 영업일의 첫 주문은 주문표 기준(영업일 → 순번)으로 구합니다.
+    const nextOrder = orderMetaAt(orderIndexOf(firstSequenceOfDay(nextDay), WORKBENCH_SCHEDULE));
+    const dreamUnlockNames = this.dayDreamUnlocks.map((id) => catalogBikeById(id)?.name ?? id);
     this.game = startRewardSettlementPrototype(this.stageId, {
       // 급여는 납품마다 이미 받았으므로, 봉투는 오늘 수입만큼 올라가는 연출만 합니다.
       initialCoins: this.state.coins - day.earnings,
@@ -472,7 +487,9 @@ export class MvpReleaseIntegrationController {
         nextTitle: `영업 ${nextDay}일차 · ${daysToRace === 0 ? '대회일!' : `대회까지 ${daysToRace}일`}`,
         nextDetail: `첫 주문 ${nextOrder?.name ?? '주문'} · 오늘 목표 주문 ${day.orderTarget}건`,
         nextButton: '▶ 다음 영업 시작',
-        doneMessage: '오늘 정산이 끝났습니다. 다음 영업을 시작하거나 홈으로 돌아가세요.',
+        doneMessage: dreamUnlockNames.length > 0
+          ? `드림 등급 ${dreamUnlockNames.join(' · ')} 도감 등록! Garage에서 제작할 수 있어요. 다음 영업을 시작하거나 홈으로 돌아가세요.`
+          : '오늘 정산이 끝났습니다. 다음 영업을 시작하거나 홈으로 돌아가세요.',
       },
       onReward: () => this.refreshShell(),
       onNext: () => { this.beginNextDay(); this.show('game'); },
@@ -484,13 +501,18 @@ export class MvpReleaseIntegrationController {
   private beginNextDay() {
     this.state.day = prepareNextDay(this.state.day);
     this.dayDeliveries = [];
+    this.dayDreamUnlocks = [];
+    // 주문표는 영업일 기준이므로, 새 영업일의 첫 주문이 작업대 순번과 어긋나 있으면 맞춥니다(한 행동 2건 납품 등).
+    if (alignWorkbenchToDay(this.state.workbench, this.state.day)) {
+      this.state.orderIndex = orderIndexOf(this.state.workbench.order, WORKBENCH_SCHEDULE);
+    }
     this.saveState();
   }
 
   // 홈 화면에 표시할 메타 루프 진행 요약: 다음 목표 규칙은 meta-progress가 담당
   private buildHomeProgress() {
     const orderMeta = orderMetaAt(this.state.orderIndex) ?? ORDER_METAS[0];
-    const goal = computeNextGoal(this.collection, this.growth);
+    const goal = computeNextGoal(this.collection, this.growth, this.state.coins);
     // 홈 대표 자전거는 완성(보유) 자전거만: 선택 자전거가 미완성이면 시작 자전거로 대체
     const selectedCrafted = this.collection.craftedBikeIds.includes(this.collection.selectedBikeId);
     const hero = (selectedCrafted ? catalogBikeById(this.collection.selectedBikeId) : undefined) ?? catalogBikeById('dream-road')!;

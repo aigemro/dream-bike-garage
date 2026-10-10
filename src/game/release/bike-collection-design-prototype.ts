@@ -3,7 +3,7 @@
 import Phaser from 'phaser';
 import { drawPixelBike, addPixelBikeImage, makeWarmColorway, bikeCategoryFromKorean } from './bike-pixel-sprite';
 import { CATALOG_BIKES } from './bike-catalog';
-import { CRAFT_PARTS, dreamUpgradeCost, type CraftPartType } from './meta-progress';
+import { CRAFT_PARTS, craftPartCost, dreamUpgradeCost, type CraftPartType } from './meta-progress';
 
 export type BikeCollectionDesignMode = 'warm-catalog' | 'warm-showcase' | 'warm-dream-growth';
 
@@ -36,6 +36,8 @@ export type BikeCollectionDesignHooks = {
     coins: number;
     stats: Record<'성능' | '스타일' | '희귀도', number>;
     stageUp?: boolean;
+    // 이번 강화로 승급 보상으로 도감 등록된 드림 등급 자전거 이름 (레벨 디자인 규칙)
+    dreamUnlockedBikeNames?: string[];
   };
   onHome?: () => void;
   onCatalog?: () => void;
@@ -411,7 +413,9 @@ class BikeCollectionDesignScene extends Phaser.Scene {
           }
           this.hooks.onSfx?.('reward');
           const nextTotal = Object.values(this.dreamStats).reduce((sum, value) => sum + value, 0);
-          this.notify(result.stageUp && nextTotal >= 10 ? '드림 등급 달성! 나만의 드림 바이크 완성.'
+          const unlocked = result.dreamUnlockedBikeNames ?? [];
+          this.notify(unlocked.length > 0 ? `드림 등급 달성! ${unlocked.join(' · ')} 도감 등록 · 제작할 수 있어요.`
+            : result.stageUp && nextTotal >= 10 ? '드림 등급 달성! 나만의 드림 바이크 완성.'
             : result.stageUp ? '고급 등급 달성! 외형 강조가 추가됐습니다.'
             : `${key} 강화 완료 · 남은 코인 ${this.coins.toLocaleString()}`);
           return;
@@ -461,14 +465,16 @@ class BikeCollectionDesignScene extends Phaser.Scene {
     CRAFT_PARTS.forEach((part, index) => {
       const y = 442 + index * 66;
       const done = isInstalled(part.type);
+      // 제작 비용은 자전거 등급 배수를 적용한 값(레벨 디자인 데이터)이 단일 출처
+      const cost = craftPartCost(target.id, part.type);
       this.pixelRect(195, y, 350, 56, done ? 0xdff0d0 : 0xffe6a8, P.wood, 5);
       this.label(40, y - 18, part.name, 12, '#3b2531', true).setDepth(6);
-      this.label(40, y + 2, done ? '장착 완료' : `비용 ${part.cost.toLocaleString()}코인`, 9, done ? '#3f7851' : '#7b5140', true).setDepth(6);
+      this.label(40, y + 2, done ? '장착 완료' : `비용 ${cost.toLocaleString()}코인`, 9, done ? '#3f7851' : '#7b5140', true).setDepth(6);
       if (done) {
         this.label(330, y, '✓', 16, '#3f7851', true).setOrigin(.5).setDepth(6);
         return;
       }
-      this.button(300, y, 104, 40, `장착 ${part.cost}`, () => {
+      this.button(300, y, 104, 40, `장착 ${cost}`, () => {
         if (!this.hooks.onCraftPart) return;
         const result = this.hooks.onCraftPart(target.id, part.type);
         this.coins = result.coins;

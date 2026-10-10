@@ -2,28 +2,49 @@
 // 주문 완료 → 컬렉션 해금(#201), 컬렉션 진행 저장·복구(#204),
 // 드림 바이크 성장·코인 소비(#203)의 데이터 규칙을 화면 코드와 분리해 단위 테스트 가능하게 관리합니다.
 
-import { catalogBikeById, type CatalogBike } from './bike-catalog';
+import { CATALOG_BIKES, catalogBikeById, type CatalogBike } from './bike-catalog';
+import { CRAFT_COST_MULTIPLIER_BY_GRADE, DREAM_BIKE_UNLOCKS, LEVEL_DESIGN, UPGRADE_HINT_COIN_THRESHOLD } from '../../data/level-design';
+import { buildOrderSchedule, type DreamBikeUnlockRule, type OrderCategory, type OrderGrade, type ScheduledOrder } from '../../domain/progression';
 
-// ── 주문 메타: merge-prototype의 ORDERS(부품 목표)와 인덱스로 1:1 대응 ──
+// ── 주문 메타: 레벨 디자인 주문표(src/data/level-design.ts)를 누적 주문 순번 기준으로 펼친 것 ──
+// orderIndex는 주문표 위치(= 설계 구간 안에서는 누적 주문 순번)이며, 작업대 이벤트의 orderIndex와 같은 값입니다.
 // bikeId는 이 주문 납품이 이해도를 올리는 대상 자전거입니다 (#221).
-export type OrderBikeCategory = 'city' | 'mtb' | 'road';
+export type OrderBikeCategory = OrderCategory;
 export type OrderMeta = {
   orderIndex: number;
+  orderId: string;
   name: string;
   bikeCategory: OrderBikeCategory;
+  grade: OrderGrade;
   reward: number;
   bikeId: string;
-  // 부품별 요구 레벨: 게임 화면(merge-prototype ORDERS)과 머지 작업대가 같은 값을 쓰는 단일 출처
+  // 부품별 요구 레벨: 머지 작업대와 같은 값을 쓰는 단일 출처
   partLevels: OrderPartLevels;
+  // 이 주문이 놓인 영업일(1부터)과 슬롯(0부터)
+  day: number;
+  slot: number;
 };
 export type OrderPartLevels = { frame: number; wheel: number; drivetrain: number; handlebar: number };
 
-export const ORDER_METAS: OrderMeta[] = [
-  { orderIndex: 0, name: '통학용 어반 로드', bikeCategory: 'city', reward: 1000, bikeId: 'urban-road', partLevels: { frame: 2, wheel: 2, drivetrain: 1, handlebar: 1 } },
-  { orderIndex: 1, name: '트레일 MTB', bikeCategory: 'mtb', reward: 1400, bikeId: 'trail-mtb', partLevels: { frame: 3, wheel: 2, drivetrain: 2, handlebar: 1 } },
-  { orderIndex: 2, name: '엔듀런스 로드', bikeCategory: 'road', reward: 1800, bikeId: 'aero-sprinter', partLevels: { frame: 2, wheel: 3, drivetrain: 2, handlebar: 2 } },
-];
+/** 설계 주문표. 작업대(WORKBENCH_SCHEDULE)·홈·정산 화면이 같은 출처를 씁니다. */
+export const ORDER_SCHEDULE = buildOrderSchedule(LEVEL_DESIGN);
 
+const toOrderMeta = (entry: ScheduledOrder): OrderMeta => ({
+  orderIndex: entry.sequence,
+  orderId: entry.id,
+  name: entry.name,
+  bikeCategory: entry.category,
+  grade: entry.grade,
+  reward: entry.reward,
+  bikeId: entry.bikeId,
+  partLevels: { ...entry.levels },
+  day: entry.day,
+  slot: entry.slot,
+});
+
+export const ORDER_METAS: OrderMeta[] = ORDER_SCHEDULE.entries.map(toOrderMeta);
+
+/** 주문표 위치의 주문 메타. 위치는 작업대가 orderIndexOf로 계산한 값(반복 구간 포함)이어야 합니다. */
 export function orderMetaAt(orderIndex: number): OrderMeta | undefined {
   return ORDER_METAS[orderIndex];
 }
@@ -128,17 +149,35 @@ export const CRAFT_PARTS: Array<{ type: CraftPartType; name: string; cost: numbe
 ];
 export const CRAFT_PART_TYPES: CraftPartType[] = CRAFT_PARTS.map((part) => part.type);
 
+/** 등급별 제작 비용 배수(레벨 디자인 데이터). 카탈로그에 없는 자전거는 기본 1배. */
+export function craftCostMultiplier(bikeId: string): number {
+  const grade = catalogBikeById(bikeId)?.grade;
+  return grade ? CRAFT_COST_MULTIPLIER_BY_GRADE[grade] ?? 1 : 1;
+}
+
+/** 이 자전거에 이 부품을 장착하는 비용(기본 비용 × 등급 배수, 정수) */
+export function craftPartCost(bikeId: string, part: CraftPartType): number {
+  const base = CRAFT_PARTS.find((item) => item.type === part)?.cost ?? 0;
+  return Math.round(base * craftCostMultiplier(bikeId));
+}
+
+/** 이 자전거를 완성하는 데 드는 부품 4종 비용 합 */
+export function craftTotalCost(bikeId: string): number {
+  return CRAFT_PART_TYPES.reduce((sum, part) => sum + craftPartCost(bikeId, part), 0);
+}
+
 export function installedCraftParts(progress: CollectionProgress, bikeId: string): CraftPartType[] {
   // 완성 자전거는 항상 부품 4종이 모두 장착된 상태로 본다
   if (isBikeCrafted(progress, bikeId)) return [...CRAFT_PART_TYPES];
   return [...(progress.craftPartsByBikeId[bikeId] ?? [])];
 }
 
-// 다음에 장착할 부품 (CRAFT_PARTS 순서 기준). 완성됐거나 제작 대상이 아니면 undefined.
-export function nextCraftPart(progress: CollectionProgress, bikeId: string) {
+// 다음에 장착할 부품 (CRAFT_PARTS 순서 기준, 비용은 등급 배수 적용). 완성됐거나 제작 대상이 아니면 undefined.
+export function nextCraftPart(progress: CollectionProgress, bikeId: string): { type: CraftPartType; name: string; cost: number } | undefined {
   if (!isBikeRegistered(progress, bikeId) || isBikeCrafted(progress, bikeId)) return undefined;
   const installed = installedCraftParts(progress, bikeId);
-  return CRAFT_PARTS.find((part) => !installed.includes(part.type));
+  const part = CRAFT_PARTS.find((item) => !installed.includes(item.type));
+  return part ? { type: part.type, name: part.name, cost: craftPartCost(bikeId, part.type) } : undefined;
 }
 
 export type CraftResult =
@@ -154,7 +193,8 @@ export function applyCraftPart(progress: CollectionProgress, coins: number, bike
   if (!isBikeRegistered(progress, bikeId)) return { ok: false, reason: 'not-registered', coins };
   const installed = progress.craftPartsByBikeId[bikeId] ?? [];
   if (installed.includes(part)) return { ok: false, reason: 'already-installed', coins };
-  if (coins < meta.cost) return { ok: false, reason: 'coins', coins };
+  const cost = craftPartCost(bikeId, part);
+  if (coins < cost) return { ok: false, reason: 'coins', coins };
 
   const nextInstalled = [...installed, part];
   const completed = CRAFT_PART_TYPES.every((type) => nextInstalled.includes(type));
@@ -164,7 +204,7 @@ export function applyCraftPart(progress: CollectionProgress, coins: number, bike
   } else {
     progress.craftPartsByBikeId[bikeId] = nextInstalled;
   }
-  return { ok: true, coins: coins - meta.cost, part, installedParts: nextInstalled, completed };
+  return { ok: true, coins: coins - cost, part, installedParts: nextInstalled, completed };
 }
 
 // ── 컬렉션 진행 저장·복구 (#204) ──
@@ -362,6 +402,39 @@ export function applyBikeUpgrade(
   };
 }
 
+// ── 드림 등급 자전거 해금 (레벨 디자인 · 승급 보상) ──
+// 드림 등급 3대(드림 머신·익스페디션 그래블·드림 미니벨로)는 주문으로 오지 않고, 같은 카테고리의 보유 자전거를
+// 강화해 요구 단계에 닿으면 도감 등록(제작 가능)됩니다. 규칙 데이터는 src/data/level-design.ts의 DREAM_BIKE_UNLOCKS입니다.
+
+/** 카테고리의 일반(드림 제외) 도감 자전거 id */
+export function normalBikeIdsOfCategory(category: CatalogBike['category']): string[] {
+  return CATALOG_BIKES.filter((bike) => bike.category === category && bike.grade !== '드림').map((bike) => bike.id);
+}
+
+/** 해금 규칙 1개가 지금 충족되는지(이미 등록된 경우는 거짓) */
+export function dreamBikeUnlockReady(collection: CollectionProgress, growth: GrowthProgress, rule: DreamBikeUnlockRule): boolean {
+  if (isBikeRegistered(collection, rule.bikeId) || !catalogBikeById(rule.bikeId)) return false;
+  const stageReached = collection.craftedBikeIds.some((id) => catalogBikeById(id)?.category === rule.category && dreamStage(bikeStats(growth, id)) >= rule.requiredStage);
+  if (!stageReached) return false;
+  return !rule.requireCategoryRegistered || normalBikeIdsOfCategory(rule.category).every((id) => isBikeRegistered(collection, id));
+}
+
+/**
+ * 충족된 드림 해금 규칙을 모두 적용해 새로 등록된 자전거 id를 돌려줍니다(이해도 100%·NEW 표시).
+ * 강화 성공 뒤와 납품 뒤에 부르면 됩니다. 변화가 없으면 빈 배열.
+ */
+export function applyDreamBikeUnlocks(collection: CollectionProgress, growth: GrowthProgress, rules: readonly DreamBikeUnlockRule[] = DREAM_BIKE_UNLOCKS): string[] {
+  const unlocked: string[] = [];
+  rules.forEach((rule) => {
+    if (!dreamBikeUnlockReady(collection, growth, rule)) return;
+    collection.understandingByBikeId[rule.bikeId] = UNDERSTANDING_MAX;
+    collection.registeredBikeIds.push(rule.bikeId);
+    if (!collection.newBikeIds.includes(rule.bikeId)) collection.newBikeIds.push(rule.bikeId);
+    unlocked.push(rule.bikeId);
+  });
+  return unlocked;
+}
+
 // ── 자전거 성장 저장·복구 (#203 → #223 v2) — 컬렉션(#204)과 같은 버전·보정 규칙 구조 ──
 
 export const GROWTH_STORAGE_KEY = 'dbg-lab-meta-growth';
@@ -417,10 +490,12 @@ export function sanitizeGrowthProgress(data: Partial<GrowthProgress>): GrowthPro
   return { statsByBikeId };
 }
 
-// ── 다음 목표 결정 규칙 (#205 → #221·#222·#223 개편) ──
+// ── 다음 목표 결정 규칙 (#205 → #221·#222·#223 개편 → 레벨 디자인 적체 방지) ──
 // 우선순위: 1) 등록·미완성 자전거의 부품 제작 (등록 직후 만들기 체험으로 바로 연결)
-// → 2) 이해도가 100%가 아닌 자전거의 주문 납품 → 3) 완성 자전거 중 강화 가능한 파츠
-// → 4) 모두 달성 시 반복 주문 안내.
+// → 2) 코인이 충분하면 대표 자전거(첫 보유 자전거)를 드림 단계(스탯 합 10)까지 강화 — 첫 대회 전 강화와 드림 해금 조건에 연결
+// → 3) 코인이 UPGRADE_HINT_COIN_THRESHOLD 이상 쌓였으면 보유 자전거 중 가장 낮은 파츠 강화 (적체 방지)
+// → 4) 이해도가 100%가 아닌 자전거의 주문 납품 → 5) 완성 자전거 중 강화 가능한 파츠 → 6) 모두 달성 시 반복 주문 안내.
+// coins를 넘기지 않으면(코인을 모르는 호출) 2·3을 건너뛰어 이전과 같은 순서(1 → 4 → 5 → 6)로 안내합니다.
 
 export type NextGoal =
   | { kind: 'understand'; orderIndex: number; orderName: string; bikeId: string; bikeName: string; understanding: number; deliveriesLeft: number }
@@ -428,7 +503,19 @@ export type NextGoal =
   | { kind: 'upgrade'; bikeId: string; bikeName: string; stat: DreamStatKey; cost: number }
   | { kind: 'repeat' };
 
-export function computeNextGoal(collection: CollectionProgress, growth: GrowthProgress): NextGoal {
+// 보유 자전거의 가장 낮은 강화 파츠(최대 단계인 파츠 제외). 모두 최대면 undefined.
+function lowestUpgradableStat(growth: GrowthProgress, bikeId: string): { stat: DreamStatKey; cost: number } | undefined {
+  const stats = bikeStats(growth, bikeId);
+  const upgradable = DREAM_STAT_KEYS.filter((key) => stats[key] < DREAM_STAT_MAX_LEVEL);
+  if (upgradable.length === 0) return undefined;
+  const stat = upgradable.reduce((lowest, key) => (stats[key] < stats[lowest] ? key : lowest));
+  return { stat, cost: dreamUpgradeCost(stats[stat]) };
+}
+
+const upgradeGoal = (bikeId: string, pick: { stat: DreamStatKey; cost: number }): NextGoal =>
+  ({ kind: 'upgrade', bikeId, bikeName: catalogBikeById(bikeId)?.name ?? bikeId, stat: pick.stat, cost: pick.cost });
+
+export function computeNextGoal(collection: CollectionProgress, growth: GrowthProgress, coins?: number): NextGoal {
   // 등록됐지만 아직 완성하지 못한 자전거의 다음 부품 제작 (#222)
   const craftTargetId = collection.registeredBikeIds.find((id) => !isBikeCrafted(collection, id));
   if (craftTargetId) {
@@ -443,6 +530,22 @@ export function computeNextGoal(collection: CollectionProgress, growth: GrowthPr
         installedCount: installedCraftParts(collection, craftTargetId).length,
         totalParts: CRAFT_PART_TYPES.length,
       };
+    }
+  }
+  // 코인을 아는 호출만 구매 안내(2·3)를 먼저 합니다. 모르는 호출은 이전 순서(제작 → 납품 → 강화)를 유지합니다.
+  if (coins !== undefined) {
+    // 대표 자전거(첫 보유 자전거)를 드림 단계까지: 첫 대회(5일차) 전 강화 유도, 드림 등급 해금 조건 2에 연결
+    const heroId = collection.craftedBikeIds[0];
+    if (heroId && dreamStage(bikeStats(growth, heroId)) < 3) {
+      const pick = lowestUpgradableStat(growth, heroId);
+      if (pick && coins >= pick.cost) return upgradeGoal(heroId, pick);
+    }
+    // 코인이 쌓였으면 납품 안내보다 보유 자전거 강화를 먼저 권한다 (적체 방지)
+    if (coins >= UPGRADE_HINT_COIN_THRESHOLD) {
+      for (const bikeId of collection.craftedBikeIds) {
+        const pick = lowestUpgradableStat(growth, bikeId);
+        if (pick && coins >= pick.cost) return upgradeGoal(bikeId, pick);
+      }
     }
   }
   const nextStudy = ORDER_METAS.find((meta) => !isBikeRegistered(collection, meta.bikeId));
@@ -461,17 +564,8 @@ export function computeNextGoal(collection: CollectionProgress, growth: GrowthPr
   }
   // 완성 자전거 중 아직 최대 단계가 아닌 첫 자전거의 가장 낮은 파츠를 안내한다 (#223)
   for (const bikeId of collection.craftedBikeIds) {
-    const stats = bikeStats(growth, bikeId);
-    const upgradable = DREAM_STAT_KEYS.filter((key) => stats[key] < DREAM_STAT_MAX_LEVEL);
-    if (upgradable.length === 0) continue;
-    const stat = upgradable.reduce((lowest, key) => (stats[key] < stats[lowest] ? key : lowest));
-    return {
-      kind: 'upgrade',
-      bikeId,
-      bikeName: catalogBikeById(bikeId)?.name ?? bikeId,
-      stat,
-      cost: dreamUpgradeCost(stats[stat]),
-    };
+    const pick = lowestUpgradableStat(growth, bikeId);
+    if (pick) return upgradeGoal(bikeId, pick);
   }
   return { kind: 'repeat' };
 }
