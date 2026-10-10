@@ -5,7 +5,7 @@ import { startGuideOverlayPrototype } from './guide-overlay-design';
 import { startMergeWorkbenchScreen } from './merge-workbench-screen';
 import { startRewardSettlementPrototype } from './reward-settlement-design';
 import { startBikeCollectionDesignPrototype, type BikeCollectionDesignMode } from './bike-collection-design-prototype';
-import { startProfileDesignPrototype } from './profile-design-prototype';
+import { startProfileDesignPrototype, type ProfileSummary } from './profile-design-prototype';
 import { startSettingsDrawerPrototype } from './settings-design';
 import { ReleaseAudio, type ReleaseAudioRoom, type ReleaseSfxEvent } from './release-audio';
 import {
@@ -172,7 +172,8 @@ export class MvpReleaseIntegrationController {
         completedOrders: this.state.completedOrders,
         progress: this.buildHomeProgress(),
         dayNumber,
-        dayStatusLabel: `${raceDay ? '대회일' : this.dayStatusLabel()} · 주문 ${this.state.day.ordersCompleted}/${this.state.day.orderTarget}`,
+        // 상태 문구는 수집·프로필 HUD와 같은 계산을 공유합니다.
+        dayStatusLabel: this.homeDayStatusLabel(),
         race: {
           dayNumber,
           heldEveryDays: RIVERSIDE_ENDURANCE_RACE.heldEveryDays,
@@ -269,6 +270,9 @@ export class MvpReleaseIntegrationController {
       const mode: BikeCollectionDesignMode = screen === 'catalog' ? 'warm-catalog' : screen === 'showcase' ? 'warm-showcase' : 'warm-dream-growth';
       this.game = startBikeCollectionDesignPrototype(this.stageId, mode, {
         coins: this.state.coins,
+        // 상단 HUD: 홈과 같은 DAY 번호·상태 문구 (가짜 ENERGY 대신 실제 값)
+        dayNumber: this.state.day.dayNumber,
+        dayStatusLabel: this.homeDayStatusLabel(),
         initialBikeId: this.collection.selectedBikeId,
         // 실제 컬렉션 진행 데이터 연결: 보유·신규 발견·전시 슬롯을 단일 상태로 공유
         // 보유(전시·성장)는 완성 자전거 기준, 등록·이해도는 도감 상태 표시용
@@ -328,7 +332,12 @@ export class MvpReleaseIntegrationController {
       return;
     }
     if (screen === 'profile') {
-      this.game = startProfileDesignPrototype(this.stageId, 'warm-id-card', { onHome: () => this.show('home'), onSfx: (event) => this.play(event) });
+      this.game = startProfileDesignPrototype(this.stageId, 'warm-id-card', {
+        // 카드 수치는 고정 데모 데이터 대신 실제 진행 요약을 넘깁니다.
+        profile: this.buildProfileSummary(),
+        onHome: () => this.show('home'),
+        onSfx: (event) => this.play(event),
+      });
       return;
     }
     this.game = startSettingsDrawerPrototype(this.stageId, {
@@ -360,6 +369,13 @@ export class MvpReleaseIntegrationController {
     if (status === 'ready') return '영업 준비';
     if (status === 'closing') return '정산 대기';
     return '영업 중';
+  }
+
+  // 홈·수집 3모드·프로필 HUD가 공유하는 상태 문구 (대회일 표기 포함). 화면마다 문구가 달라지지 않도록 한 곳에서 계산합니다.
+  // 예: `영업 준비 · 주문 0/3`, `대회일 · 주문 1/3`
+  private homeDayStatusLabel() {
+    const raceDay = isRaceDay(this.state.day.dayNumber, RIVERSIDE_ENDURANCE_RACE);
+    return `${raceDay ? '대회일' : this.dayStatusLabel()} · 주문 ${this.state.day.ordersCompleted}/${this.state.day.orderTarget}`;
   }
 
   // 작업대에 들어오면 오늘 영업을 시작하거나 이어서 엽니다.
@@ -449,7 +465,8 @@ export class MvpReleaseIntegrationController {
     const nextOrder = orderMetaAt(this.state.orderIndex);
     this.game = startRewardSettlementPrototype(this.stageId, {
       // 급여는 납품마다 이미 받았으므로, 봉투는 오늘 수입만큼 올라가는 연출만 합니다.
-      initialCoins: this.state.coins - day.earnings,
+      // 정산 전에 코인을 썼을 수 있으므로(강화·대회 참가비) 시작값이 음수가 되지 않게 방어합니다.
+      initialCoins: Math.max(0, this.state.coins - day.earnings),
       reward: day.earnings,
       bikeCategory: orderMetaAt(this.dayDeliveries.at(-1)?.orderIndex ?? 0)?.bikeCategory,
       understanding: highlight?.bike
@@ -525,6 +542,28 @@ export class MvpReleaseIntegrationController {
         grade: dreamGradeName(heroStats),
         stage: dreamStage(heroStats),
       },
+    };
+  }
+
+  // 프로필 카드 실제 수치: 대표 자전거·다음 목표는 홈 진행 요약을 재사용하고,
+  // 누적 급여는 마감 이력(dayHistory) 합 + 오늘 수입으로 계산합니다(정산 직후처럼 오늘이 이미 이력에 있으면 중복 합산하지 않음).
+  private buildProfileSummary(): ProfileSummary {
+    const progress = this.buildHomeProgress();
+    const day = this.state.day;
+    const settledEarnings = this.state.dayHistory.reduce((sum, entry) => sum + entry.earnings, 0);
+    const todaySettled = this.state.dayHistory.some((entry) => entry.dayNumber === day.dayNumber);
+    return {
+      dayNumber: day.dayNumber,
+      dayStatusLabel: this.homeDayStatusLabel(),
+      coins: this.state.coins,
+      completedOrders: this.state.completedOrders,
+      craftedBikes: craftedBikeCount(this.collection),
+      catalogSize: CATALOG_SIZE,
+      totalEarnings: settledEarnings + (todaySettled ? 0 : day.earnings),
+      settledDays: this.state.dayHistory.length,
+      heroBikeName: progress.heroBike.name,
+      nextGoalLabel: progress.nextGoalLabel,
+      nextGoalHint: progress.nextGoalHint,
     };
   }
 

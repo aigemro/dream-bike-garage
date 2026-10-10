@@ -1,7 +1,7 @@
-// 타이틀·로딩 화면 A안: 따뜻한 픽셀 공방 간판형 (390×810)
+// 타이틀·로딩 화면 (출시 적용): 따뜻한 픽셀 공방 간판형 (390×810)
 // 목재 간판 로고와 대표 자전거로 첫인상을 만들고, 자전거 바퀴 회전과
 // 진행 바로 로딩을 표현한다. 로딩 진행률은 실제 진행률과 연결 가능한
-// 형태로 두되 데모에서는 시뮬레이션한다. 앱인토스 대표 이미지 후보 겸용.
+// 형태로 두되 현재는 짧은 시간 동안 시뮬레이션한다. 앱인토스 대표 이미지 후보 겸용.
 import Phaser from 'phaser';
 import { drawPixelBike, makeWarmColorway } from './bike-pixel-sprite';
 import { drawFieldCharacter } from './art-character-pixel';
@@ -30,7 +30,6 @@ class TitleLoadingScene extends Phaser.Scene {
   private percentText!: Phaser.GameObjects.Text;
   private loadingLabel!: Phaser.GameObjects.Text;
   private startText?: Phaser.GameObjects.Text;
-  private message!: Phaser.GameObjects.Text;
 
   create() {
     this.cameras.main.setBackgroundColor('#c78452');
@@ -43,7 +42,7 @@ class TitleLoadingScene extends Phaser.Scene {
     for (let x = 24; x < 390; x += 52) this.add.rectangle(x, 300, 2, 600, 0xb37246, 0.35).setDepth(0);
     this.add.rectangle(195, 74, 390, 148, 0xf4b84a, 0.25).setDepth(0);
 
-    // 목재 간판: 사슬에 걸린 큰 로고 패널
+    // 목재 간판: 사슬에 걸린 큰 로고 패널 (y 66~194)
     this.add.rectangle(120, 26, 6, 96, 0x6e3f28).setDepth(1);
     this.add.rectangle(270, 26, 6, 96, 0x6e3f28).setDepth(1);
     this.add.rectangle(195, 130, 330, 128, BROWN).setStrokeStyle(6, BORDER).setDepth(2);
@@ -53,21 +52,21 @@ class TitleLoadingScene extends Phaser.Scene {
     this.add.text(195, 174, '두리 자전거 공방', { fontFamily: FONT, fontSize: '11px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3);
 
     // 대표 장면: 드림 바이크 + 정비사 (스토어 대표 이미지 후보 구도)
-    this.add.rectangle(195, 400, 334, 244, CREAM, 0.35).setStrokeStyle(4, BROWN).setDepth(1);
-    drawPixelBike(this, 172, 408, 4, {
+    // 액자(y 254~498)는 간판 아래 60px, 로딩 바퀴 위 60px로 간격을 균등하게 둔다
+    this.add.rectangle(195, 376, 334, 244, CREAM, 0.35).setStrokeStyle(4, BROWN).setDepth(1);
+    drawPixelBike(this, 172, 384, 4, {
       category: 'road', colorway: makeWarmColorway(0xc95746), depth: 3,
     });
-    drawFieldCharacter(this, 322, 492, '정비사', 4, 3);
+    drawFieldCharacter(this, 322, 468, '정비사', 4, 3);
 
-    // 로딩: 회전하는 앞바퀴 + 진행 바
+    // 로딩: 회전하는 앞바퀴(바닥에 세워 둔 구도) + 진행 바
     this.wheel = this.buildLoadingWheel(195, 600);
     this.add.rectangle(195, 668, 300, 20, 0xffe6a8).setStrokeStyle(3, BORDER).setDepth(3);
     this.barFill = this.add.rectangle(48, 668, 0, 12, 0x5e9a67).setOrigin(0, 0.5).setDepth(4);
-    this.percentText = this.add.text(195, 668, '0%', { fontFamily: FONT, fontSize: '10px', color: INK, fontStyle: 'bold' }).setOrigin(0.5).setDepth(5);
-    this.loadingLabel = this.add.text(195, 692, '공방 문을 여는 중…', { fontFamily: FONT, fontSize: '10px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3);
+    this.percentText = this.add.text(195, 668, '0%', { fontFamily: FONT, fontSize: '11px', color: INK, fontStyle: 'bold' }).setOrigin(0.5).setDepth(5);
+    this.loadingLabel = this.add.text(195, 693, '공방 문을 여는 중…', { fontFamily: FONT, fontSize: '11px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3);
 
-    this.message = this.add.text(195, 730, '', { fontFamily: FONT, fontSize: '10px', color: '#ffe6a8', align: 'center', wordWrap: { width: 340 } }).setOrigin(0.5, 0).setDepth(3);
-    this.add.text(195, 788, `Dream Bike Garage · v${APP_VERSION}`, { fontFamily: FONT, fontSize: '8px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3).setAlpha(0.8);
+    this.add.text(195, 788, `Dream Bike Garage · v${APP_VERSION}`, { fontFamily: FONT, fontSize: '9px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3).setAlpha(0.8);
 
     this.input.on('pointerdown', () => this.enterHome());
   }
@@ -98,9 +97,8 @@ class TitleLoadingScene extends Phaser.Scene {
     this.percentText.setText('100%');
     this.barFill.width = 294;
     this.loadingLabel.setText('준비 완료!');
-    this.startText = this.add.text(195, 724, '▶ TAP TO START', { fontFamily: FONT, fontSize: '16px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(5);
+    this.startText = this.add.text(195, 728, '▶ TAP TO START', { fontFamily: FONT, fontSize: '16px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(5);
     this.tweens.add({ targets: this.startText, alpha: { from: 1, to: 0.35 }, duration: 620, yoyo: true, repeat: -1 });
-    this.message.setPosition(195, 744);
   }
 
   private enterHome() {
@@ -108,7 +106,8 @@ class TitleLoadingScene extends Phaser.Scene {
     this.hooks.onSfx?.('tap');
     this.phase = 'entering';
     this.startText?.destroy();
-    this.message.setText('같은 Garage의 홈 화면(홈 A안)으로 이어집니다.\n데모에서는 초기화로 다시 볼 수 있습니다.');
+    // 전환 중에는 짧은 안내만 남기고 셔터 연출로 홈으로 이어진다
+    this.loadingLabel.setText('공방 문을 엽니다…');
     // 셔터가 올라가듯 화면이 밝아지며 홈으로 전환되는 짧은 연출
     const shutter = this.add.rectangle(195, 405, 390, 810, 0xfff1c6, 0).setDepth(30);
     this.tweens.add({

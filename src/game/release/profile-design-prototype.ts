@@ -1,21 +1,55 @@
 import Phaser from 'phaser';
 
 export type ProfileDesignMode = 'warm-id-card' | 'warm-career-board' | 'warm-stats-dashboard';
-export type ProfileDesignHooks = { onHome?: () => void; onSfx?: (event: 'tap') => void };
+// 프로필 카드에 표시할 실제 진행 요약. 통합 컨트롤러가 계산해 넘겨 주며, 없으면 화면이 중립값으로 표시합니다.
+export type ProfileSummary = {
+  dayNumber: number;          // 현재 영업 일차
+  dayStatusLabel: string;     // 홈과 같은 상태 문구
+  coins: number;              // 보유 코인
+  completedOrders: number;    // 누적 납품 수
+  craftedBikes: number;       // 완성(보유) 자전거 수
+  catalogSize: number;        // 도감 전체 수(24)
+  totalEarnings: number;      // 누적 급여 (dayHistory earnings 합 + 오늘 earnings)
+  settledDays: number;        // 마감한 영업일 수 (dayHistory.length)
+  heroBikeName: string;       // 대표 자전거 이름
+  nextGoalLabel: string;      // 홈과 같은 다음 목표
+  nextGoalHint: string;
+};
+export type ProfileDesignHooks = {
+  onHome?: () => void;
+  onSfx?: (event: 'tap') => void;
+  // 실제 진행 요약: 지정 시 고정 데모 수치 대신 이 값을 카드에 표시합니다.
+  profile?: ProfileSummary;
+};
 
-// 홈 화면 디자인 A안(따뜻한 생활형 픽셀 Garage)과 동일한 팔레트를 사용합니다.
+// 홈 화면(따뜻한 생활형 픽셀 Garage)과 동일한 팔레트를 사용합니다.
 const P = {
   ink: 0x3b2531, cream: 0xfff1c6, paper: 0xf6d995, wood: 0x8e5136,
   darkWood: 0x573044, floor: 0xb66f45, green: 0x5e9a67, leaf: 0x86ba6f,
   sky: 0x86c9c8, blue: 0x4e8092, gold: 0xf4b84a, red: 0xc95746, tire: 0x302936,
 };
 
-// 홈 A안·수집 화면 디자인 트랙과 동일한 세계관 고정 데이터 (docs/PROFILE_SCREEN_DESIGN_REVIEW.md)
+// 통합 컨트롤러가 profile 훅을 넘기지 않을 때 쓰는 중립 기본값 (가짜 실적 대신 시작 상태)
+const DEFAULT_SUMMARY: ProfileSummary = {
+  dayNumber: 1,
+  dayStatusLabel: '영업 준비 · 주문 0/3',
+  coins: 0,
+  completedOrders: 0,
+  craftedBikes: 0,
+  catalogSize: 24,
+  totalEarnings: 0,
+  settledDays: 0,
+  heroBikeName: '어반 로드',
+  nextGoalLabel: '어반 로드',
+  nextGoalHint: '첫 주문을 납품해 보세요',
+};
+
+// 사원증 카드의 고정 세계관 데이터. 사원증 모드는 닉네임·공방 이름·고정 호칭만 쓰고,
+// 나머지(레벨·직급 사다리·주간 기록)는 출시에 쓰지 않는 다른 모드 전용입니다.
 const PROFILE = {
   nickname: '정비사 두리',
   garage: 'MY LITTLE GARAGE',
   level: 12,
-  levelProgress: .6,
   playDays: 12,
   rankIndex: 1,
   ranks: ['견습 알바', '견습 정비사', '정비사', '시니어 정비사', '마스터 정비사', '샵 오너'],
@@ -52,10 +86,13 @@ class ProfileDesignScene extends Phaser.Scene {
   private toast: string;
   private cardTheme = 0;
   private chartMetric: 'delivery' | 'merge' = 'delivery';
+  // HUD·카드에 표시할 실제 진행 요약 (훅이 없으면 중립 기본값)
+  private readonly summary: ProfileSummary;
 
   constructor(mode: ProfileDesignMode, private readonly hooks: ProfileDesignHooks = {}) {
     super('profile-design');
     this.mode = mode;
+    this.summary = hooks.profile ?? DEFAULT_SUMMARY;
     this.toast =
       mode === 'warm-id-card' ? '카드 배경 변경으로 나만의 사원증을 꾸며 보세요.'
       : mode === 'warm-career-board' ? '직급 단계를 눌러 해금 기능을 확인해 보세요.'
@@ -79,7 +116,7 @@ class ProfileDesignScene extends Phaser.Scene {
     const shadow = this.add.rectangle(x + 3, y + 4, w, h, P.darkWood).setDepth(20);
     const box = this.add.rectangle(x, y, w, h, primary ? P.gold : P.paper)
       .setStrokeStyle(3, P.ink).setDepth(21).setInteractive({ useHandCursor: true }).on('pointerdown', action);
-    this.label(x, y, text, primary ? 13 : 10, '#3b2531', true).setOrigin(.5).setAlign('center').setDepth(22)
+    this.label(x, y, text, primary ? 13 : 11, '#3b2531', true).setOrigin(.5).setAlign('center').setDepth(22)
       .setInteractive({ useHandCursor: true }).on('pointerdown', action);
     void shadow;
     return box;
@@ -93,42 +130,36 @@ class ProfileDesignScene extends Phaser.Scene {
     this.view === 'home' ? this.renderHomePreview() : this.renderProfile();
   }
 
+  // 상단 HUD: 홈과 같은 구성(왼쪽 DAY n + 상태 문구, 오른쪽 COIN 실제 보유량)
   private renderTopBar() {
     this.pixelRect(195, 39, 366, 54, P.paper, P.ink, 15);
-    this.label(28, 20, 'ENERGY', 8, '#795044', true).setDepth(16);
-    this.label(28, 37, '72 / 100', 14, '#3f7851', true).setDepth(16);
-    this.add.rectangle(112, 43, 72, 8, P.darkWood).setDepth(16).setOrigin(0, .5);
-    this.add.rectangle(112, 43, 52, 8, P.green).setDepth(17).setOrigin(0, .5);
-    this.label(274, 20, 'COIN', 8, '#795044', true).setDepth(16);
-    this.label(274, 37, '2,480', 14, '#a16028', true).setDepth(16);
+    this.label(28, 18, `DAY ${this.summary.dayNumber}`, 9, '#795044', true).setDepth(16);
+    this.label(28, 36, this.summary.dayStatusLabel, 12, '#3f7851', true).setDepth(16);
+    this.label(274, 18, 'COIN', 9, '#795044', true).setDepth(16);
+    this.label(274, 36, Math.max(0, this.summary.coins).toLocaleString(), 14, '#a16028', true).setDepth(16);
   }
 
   private renderProfile() {
-    const heads = {
-      'warm-id-card': ['MY PROFILE · A안', '정비사 사원증'],
-      'warm-career-board': ['MY PROFILE · B안', '커리어 승진 보드'],
-      'warm-stats-dashboard': ['MY PROFILE · C안', '작업 기록'],
+    const titles = {
+      'warm-id-card': '정비사 사원증',
+      'warm-career-board': '커리어 승진 보드',
+      'warm-stats-dashboard': '작업 기록',
     } as const;
-    const [eyebrow, title] = heads[this.mode];
     this.renderTopBar();
-    this.button(57, 99, 84, 40, '← HOME', () => { this.hooks.onSfx?.('tap'); if (this.hooks.onHome) this.hooks.onHome(); else { this.view = 'home'; this.render(); } });
-    this.label(112, 82, eyebrow, 8, '#6e473b', true).setDepth(16);
-    this.label(112, 96, title, 15, '#3b2531', true).setDepth(16);
-    this.pixelRect(348, 99, 66, 40, 0xffe6a8, P.wood, 15);
-    this.label(348, 92, '레벨', 8, '#7b5140', true).setOrigin(.5).setDepth(16);
-    this.label(348, 106, `Lv.${PROFILE.level}`, 12, '#3b2531', true).setOrigin(.5).setDepth(16);
+    // ← 홈: 터치 영역 84×44
+    this.button(57, 104, 84, 44, '← 홈', () => { this.hooks.onSfx?.('tap'); if (this.hooks.onHome) this.hooks.onHome(); else { this.view = 'home'; this.render(); } });
+    this.label(112, 86, 'MY PROFILE', 9, '#6e473b', true).setDepth(16);
+    this.label(112, 100, titles[this.mode], 15, '#3b2531', true).setDepth(16);
 
     if (this.mode === 'warm-id-card') this.renderIdCard();
     if (this.mode === 'warm-career-board') this.renderCareerBoard();
     if (this.mode === 'warm-stats-dashboard') this.renderStatsDashboard();
 
-    this.pixelRect(195, 744, 366, 44, 0xfff1c6, P.wood, 14);
-    this.label(195, 744, this.toast, 10, '#5d3b34', true).setOrigin(.5).setDepth(15);
-    this.pixelRect(195, 787, 366, 32, P.wood, P.ink, 18);
-    this.label(195, 787, 'DREAM BIKE GARAGE · WARM PIXEL PROFILE', 8, '#fff1c6', true).setOrigin(.5).setDepth(19);
+    this.pixelRect(195, 728, 366, 44, 0xfff1c6, P.wood, 14);
+    this.label(195, 728, this.toast, 11, '#5d3b34', true).setOrigin(.5).setDepth(15);
   }
 
-  // 홈 A안의 정비사 캐릭터를 단순화한 픽셀 초상: 모자·얼굴·작업복
+  // 홈 화면의 정비사 캐릭터를 단순화한 픽셀 초상: 모자·얼굴·작업복
   private drawMechanic(x: number, y: number, scale: number, depth: number) {
     this.add.rectangle(x, y + 44 * scale, 66 * scale, 40 * scale, P.blue).setStrokeStyle(2, P.ink).setDepth(depth);
     this.add.rectangle(x, y + 40 * scale, 20 * scale, 26 * scale, 0xffe6a8).setStrokeStyle(2, P.wood).setDepth(depth + 1);
@@ -140,49 +171,60 @@ class ProfileDesignScene extends Phaser.Scene {
     this.add.rectangle(x + 18 * scale, y - 15 * scale, 26 * scale, 6 * scale, P.red).setStrokeStyle(2, P.ink).setDepth(depth + 1);
   }
 
-  // A안: 정비사 사원증 카드 + 통계 요약 + 승진 진행
+  // 출시 적용: 정비사 사원증 카드 + 실제 실적 6칸 + 다음 목표
   private renderIdCard() {
     const theme = CARD_THEMES[this.cardTheme];
-    this.pixelRect(195, 162, 350, 36, P.wood, P.ink, 5);
-    this.label(195, 162, 'MECHANIC ID CARD', 10, '#fff1c6', true).setOrigin(.5).setDepth(6);
-    this.pixelRect(195, 296, 350, 228, theme.fill, P.wood, 5);
+    const summary = this.summary;
+    this.pixelRect(195, 160, 350, 36, P.wood, P.ink, 5);
+    this.label(195, 160, 'MECHANIC ID CARD', 11, '#fff1c6', true).setOrigin(.5).setDepth(6);
+    this.pixelRect(195, 294, 350, 228, theme.fill, P.wood, 5);
 
     this.pixelRect(107, 268, 118, 128, P.sky, P.ink, 6);
     this.drawMechanic(107, 258, 1, 7);
 
-    this.label(180, 216, PROFILE.garage, 8, '#7b5140', true).setDepth(6);
-    this.label(180, 232, PROFILE.nickname, 17, '#3b2531', true).setDepth(6);
-    this.label(180, 260, `Lv.${PROFILE.level}`, 12, '#3f7851', true).setDepth(6);
-    this.add.rectangle(228, 268, 118, 8, P.darkWood).setDepth(6).setOrigin(0, .5);
-    this.add.rectangle(228, 268, 118 * PROFILE.levelProgress, 8, P.green).setDepth(7).setOrigin(0, .5);
-    this.label(180, 280, `다음 레벨까지 ${Math.round(PROFILE.levelProgress * 100)}%`, 8, '#7b5140', true).setDepth(6);
-    this.label(180, 294, `플레이 ${PROFILE.playDays}일차`, 8, '#7b5140', true).setDepth(6);
+    // 카드 본문: 공방 이름·닉네임·영업 일차·대표 자전거 (레벨·경험치 공식은 기획에 없어 표시하지 않음)
+    this.label(180, 214, PROFILE.garage, 9, '#7b5140', true).setDepth(6);
+    this.label(180, 230, PROFILE.nickname, 17, '#3b2531', true).setDepth(6);
+    this.label(180, 258, `영업 ${summary.dayNumber}일차`, 12, '#3f7851', true).setDepth(6);
+    this.label(180, 278, `대표 자전거 · ${summary.heroBikeName}`, 9, '#7b5140', true).setDepth(6);
 
-    this.add.circle(316, 336, 34, theme.fill).setStrokeStyle(3, P.red).setDepth(6);
-    this.label(316, 328, '현재 직급', 7, '#a14a38', true).setOrigin(.5).setDepth(7);
-    this.label(316, 341, PROFILE.ranks[PROFILE.rankIndex], 9, '#a14a38', true).setOrigin(.5).setDepth(7);
-    this.label(112, 384, 'DREAM BIKE GARAGE · 오늘부터 자전거 부자', 8, '#7b5140', true).setDepth(6);
+    // 직급 도장: 고정 호칭만 표시
+    this.add.circle(318, 340, 38, theme.fill).setStrokeStyle(3, P.red).setDepth(6);
+    this.label(318, 331, '현재 직급', 9, '#a14a38', true).setOrigin(.5).setDepth(7);
+    this.label(318, 346, PROFILE.ranks[PROFILE.rankIndex], 11, '#a14a38', true).setOrigin(.5).setDepth(7);
+    this.label(112, 388, 'DREAM BIKE GARAGE · 오늘부터 자전거 부자', 9, '#7b5140', true).setDepth(6);
 
-    PROFILE.stats.forEach((stat, index) => {
+    // 실적 6칸: 통합 컨트롤러가 실제로 추적하는 값만 표시
+    const stats: Array<[string, string]> = [
+      ['납품 완료', `${summary.completedOrders}건`],
+      ['완성차', `${summary.craftedBikes}대`],
+      ['수집 진행', `${summary.craftedBikes} / ${summary.catalogSize}`],
+      ['영업 일차', `${summary.dayNumber}일차`],
+      ['누적 급여', summary.totalEarnings.toLocaleString()],
+      ['마감한 영업일', `${summary.settledDays}일`],
+    ];
+    stats.forEach(([key, value], index) => {
       const x = 75 + (index % 3) * 120;
-      const y = 462 + Math.floor(index / 3) * 66;
+      const y = 451 + Math.floor(index / 3) * 66;
       this.pixelRect(x, y, 112, 58, 0xffe6a8, P.wood, 5);
-      this.label(x, y - 14, stat.key, 8, '#7b5140', true).setOrigin(.5).setDepth(6);
-      this.label(x, y + 8, stat.value, 13, '#3b2531', true).setOrigin(.5).setDepth(6);
+      this.label(x, y - 14, key, 9, '#7b5140', true).setOrigin(.5).setDepth(6);
+      this.label(x, y + 8, value, 13, '#3b2531', true).setOrigin(.5).setDepth(6);
     });
 
-    this.pixelRect(195, 586, 350, 54, P.paper, P.ink, 5);
-    this.label(30, 566, `다음 직급 ${PROFILE.nextRank.name} · Lv.${PROFILE.level}/${PROFILE.nextRank.needLevel} · 납품 34/${PROFILE.nextRank.needDelivery}`, 10, '#5d3b34', true).setDepth(6);
-    this.add.rectangle(30, 596, 330, 8, P.darkWood).setDepth(6).setOrigin(0, .5);
-    this.add.rectangle(30, 596, 330 * (34 / PROFILE.nextRank.needDelivery), 8, P.gold).setDepth(7).setOrigin(0, .5);
+    // 다음 목표: 홈과 같은 문구 (승진 진행 바 대신)
+    this.pixelRect(195, 592, 350, 60, P.paper, P.ink, 5);
+    this.label(30, 570, 'NEXT GOAL', 9, '#a14a38', true).setDepth(6);
+    this.label(102, 568, summary.nextGoalLabel, 13, '#3b2531', true).setDepth(6);
+    this.label(30, 590, summary.nextGoalHint, 11, '#5d3b34', true).setDepth(6);
 
-    this.button(195, 678, 170, 44, `카드 배경 변경 · ${theme.name}`, () => {
+    this.button(195, 664, 190, 44, `카드 배경 변경 · ${theme.name}`, () => {
       this.cardTheme = (this.cardTheme + 1) % CARD_THEMES.length;
-      this.notify(`카드 배경을 '${CARD_THEMES[this.cardTheme].name}'로 바꿨습니다.`);
+      // 테마명 받침에 따라 조사('로'/'으로')가 달라지므로 조사가 필요 없는 형태로 표기한다
+      this.notify(`카드 배경을 바꿨습니다 · ${CARD_THEMES[this.cardTheme].name}`);
     });
   }
 
-  // B안: 6단계 직급 사다리 + 다음 승진 조건 진행
+  // 커리어 보드 모드(출시 미사용): 6단계 직급 사다리 + 다음 승진 조건 진행
   private renderCareerBoard() {
     this.pixelRect(195, 178, 350, 72, P.paper, P.ink, 5);
     this.label(30, 150, `NEXT RANK · ${PROFILE.nextRank.name}`, 9, '#a14a38', true).setDepth(6);
@@ -211,7 +253,7 @@ class ProfileDesignScene extends Phaser.Scene {
     this.label(195, 672, '납품 34건 · 조립 12대 · 머지 512회가 승진 조건에 반영됩니다', 9, '#7b5140', true).setOrigin(.5).setDepth(6);
   }
 
-  // C안: 통계 6타일 + 주간 기록 픽셀 그래프
+  // 통계 대시보드 모드(출시 미사용): 통계 6타일 + 주간 기록 픽셀 그래프
   private renderStatsDashboard() {
     this.pixelRect(195, 166, 350, 48, 0xffe6a8, P.wood, 5);
     this.drawMechanic(48, 158, .5, 6);
@@ -246,10 +288,10 @@ class ProfileDesignScene extends Phaser.Scene {
     });
   }
 
-  // 홈 A안 축약 프리뷰: 프로필 탭 → 프로필 화면 진입 흐름만 검증
+  // 홈 미리보기(onHome 훅이 없을 때만): 프로필 탭 → 프로필 화면 진입 흐름
   private renderHomePreview() {
     this.renderTopBar();
-    this.label(195, 82, 'HOME A안 축약 프리뷰 · 프로필 탭 진입 흐름 검증용', 9, '#8e5136', true).setOrigin(.5).setDepth(16);
+    this.label(195, 82, '홈 미리보기 · 프로필 탭을 눌러 프로필 화면으로 이동합니다', 9, '#8e5136', true).setOrigin(.5).setDepth(16);
 
     this.add.rectangle(195, 320, 390, 420, 0xd79a63);
     this.add.rectangle(195, 560, 390, 60, P.floor);
@@ -272,8 +314,8 @@ class ProfileDesignScene extends Phaser.Scene {
     this.label(115, 688, '▼ 프로필 탭으로 프로필 화면 진입', 9, '#a14a38', true).setOrigin(.5).setDepth(19);
     this.pixelRect(195, 744, 366, 82, P.wood, P.ink, 18);
     this.button(67, 738, 84, 56, `프로필\nLv.${PROFILE.level}`, () => { this.view = 'profile'; this.render(); }, true);
-    this.button(195, 741, 110, 48, '▶ PLAY', () => this.notify('이 데모는 프로필 탭 → 프로필 화면 흐름만 검증합니다.'));
-    this.button(323, 741, 80, 48, '자전거\n8/24', () => this.notify('이 데모는 프로필 탭 → 프로필 화면 흐름만 검증합니다.'));
+    this.button(195, 741, 110, 48, '▶ PLAY', () => this.notify('프로필 탭을 눌러 프로필 화면으로 이동합니다.'));
+    this.button(323, 741, 80, 48, '자전거\n8/24', () => this.notify('프로필 탭을 눌러 프로필 화면으로 이동합니다.'));
 
     this.pixelRect(195, 655, 310, 40, 0xfff1c6, P.wood, 14);
     this.label(195, 655, this.toast, 9, '#5d3b34', true).setOrigin(.5).setDepth(15);

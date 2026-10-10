@@ -24,7 +24,7 @@ import {
 } from './race-rider-motion';
 import { RaceRiderTextures, RacerView, snapToCell, type RacerSpec } from './race-rider-view';
 
-// 레이스 E안 — 시네마틱 스포츠 중계형 (메인 채택안).
+// 레이스 중계 화면(출시 적용) — 시네마틱 스포츠 중계형.
 // 결과는 race-progress.simulateRace가 먼저 확정하고, 이 씬은 타임라인을 재생만 합니다.
 // 라이더·바퀴·페달링은 race-rider-motion(운동 모델) → race-rider-sprite(픽셀 프레임) → race-rider-view(Phaser)로
 // 이어지는 한 줄기라, 바퀴 각속도·케이던스·지면 스크롤·자세가 하나의 굴림 조건으로 묶여 있습니다.
@@ -49,6 +49,8 @@ const META = RIVERSIDE_ENDURANCE_RACE;
 const WIDTH = 390;
 const HEIGHT = 810;
 
+// 다른 출시 화면과 같은 글꼴
+const FONT = '"Arial Rounded MT Bold", "Noto Sans KR", sans-serif';
 const INK = 0x3b2531;
 const INK_TEXT = '#3b2531';
 const CREAM = 0xfff1c6;
@@ -82,6 +84,9 @@ const SPREAD_CLAMP_PX = 180;
 const DASH_SPACING = 52;
 const FINISH_HOLD_MS = 1600;
 const COUNTDOWN_STEP_MS = 620;
+/** 실시간 순위표 줄 수(상위 3명 + 나) 와 갱신 주기 */
+const BOARD_ROWS = 4;
+const BOARD_REFRESH_MS = 200;
 
 type ScenePhase = 'entry' | 'countdown' | 'racing' | 'finish-hold' | 'result';
 
@@ -101,6 +106,23 @@ function roleFor(racer: RacerResult, index: number): PixelCharacterRole {
 function softClamp(value: number, limit: number): number {
   return limit * Math.tanh(value / limit);
 }
+
+// 시각 크기가 작은 버튼도 터치 영역은 44px 이상이 되도록 hitArea만 넓힌다
+function widenHitArea(shape: Phaser.GameObjects.Rectangle, pad: number) {
+  shape.setInteractive({
+    hitArea: new Phaser.Geom.Rectangle(-pad, -pad, shape.width + pad * 2, shape.height + pad * 2),
+    hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+    useHandCursor: true,
+  });
+  return shape;
+}
+
+type BoardRow = {
+  bg: Phaser.GameObjects.Rectangle;
+  rank: Phaser.GameObjects.Text;
+  name: Phaser.GameObjects.Text;
+  value: Phaser.GameObjects.Text;
+};
 
 export class RaceCinematicScene extends Phaser.Scene {
   private phase: ScenePhase = 'entry';
@@ -131,13 +153,17 @@ export class RaceCinematicScene extends Phaser.Scene {
   private motionText?: Phaser.GameObjects.Text;
   private progressFill?: Phaser.GameObjects.Rectangle;
   private progressDots: Phaser.GameObjects.Rectangle[] = [];
+  // 실시간 순위표(상위 3명 + 나)
+  private boardRows: BoardRow[] = [];
+  private boardTimerMs = 0;
 
   constructor(private readonly hooks: RaceCinematicHooks = {}) {
     super('release-race-e');
   }
 
   create() {
-    this.coins = this.hooks.initialCoins ?? 2480;
+    // 훅이 없으면 중립값(0 코인)에서 시작한다
+    this.coins = this.hooks.initialCoins ?? 0;
     this.textures2 ??= new RaceRiderTextures(this);
     this.buildEntry();
   }
@@ -153,7 +179,7 @@ export class RaceCinematicScene extends Phaser.Scene {
   }
 
   private text(x: number, y: number, value: string, size = 12, color = CREAM_TEXT) {
-    return this.add.text(x, y, value, { fontFamily: 'Arial, sans-serif', fontSize: `${size}px`, color, fontStyle: 'bold' });
+    return this.add.text(x, y, value, { fontFamily: FONT, fontSize: `${size}px`, color, fontStyle: 'bold' });
   }
 
   private woodBackdrop(depth = 0) {
@@ -166,7 +192,7 @@ export class RaceCinematicScene extends Phaser.Scene {
   }
 
   private dayNumber(): number {
-    return this.hooks.dayNumber ?? 5;
+    return this.hooks.dayNumber ?? 1;
   }
 
   private playerBike() {
@@ -178,8 +204,9 @@ export class RaceCinematicScene extends Phaser.Scene {
   private buildEntry() {
     this.phase = 'entry';
     this.woodBackdrop();
-    this.text(WIDTH / 2, 32, 'RIVERSIDE 3K · CINEMATIC RACE', 15).setOrigin(0.5);
-    this.text(WIDTH / 2, 60, `DAY ${this.dayNumber()} · 스포츠 중계형 자동 레이스`, 10).setOrigin(0.5);
+    this.text(WIDTH / 2, 32, 'RIVERSIDE 3K · RACE DAY', 15).setOrigin(0.5);
+    // 부제는 짧게 두어(약 135px) 왼쪽 `← 홈` 버튼(x 16~100)과 20px 이상 간격을 확보한다
+    this.text(WIDTH / 2, 60, `DAY ${this.dayNumber()} · 대회일 · 자동 중계`, 11).setOrigin(0.5);
 
     // 출전 라이더 미리보기: 레이스와 같은 픽셀 프레임(착좌·정지)
     this.add.rectangle(WIDTH / 2, 230, 330, 190, SKY).setStrokeStyle(4, INK);
@@ -190,7 +217,7 @@ export class RaceCinematicScene extends Phaser.Scene {
     const previewMotion = createMotionState(Math.PI * 0.35, 'seated');
     preview.update(previewMotion);
     preview.setPosition(WIDTH / 2 - 8, 282);
-    this.text(WIDTH / 2, 338, `나 · ${bike.name} · 정비사`, 10, INK_TEXT).setOrigin(0.5).setBackgroundColor('#fff1c6').setPadding(6, 3, 6, 3);
+    this.text(WIDTH / 2, 338, `나 · ${bike.name} · 정비사`, 11, INK_TEXT).setOrigin(0.5).setBackgroundColor('#fff1c6').setPadding(6, 3, 6, 3);
 
     this.text(WIDTH / 2, 392, '3,000m 리버사이드 3K 챌린지', 20).setOrigin(0.5);
     this.text(WIDTH / 2, 426, `참가비 ${META.entryFee} 코인 · 8명 출전`, 11).setOrigin(0.5);
@@ -203,22 +230,26 @@ export class RaceCinematicScene extends Phaser.Scene {
     ];
     prizeRows.forEach(([rank, prize], index) => {
       const x = 66 + index * 86;
-      this.add.rectangle(x, 470, 78, 26, index === 0 ? GOLD : PALE_GOLD).setStrokeStyle(2, INK);
-      this.text(x, 470, `${rank} ${prize}`, 9, INK_TEXT).setOrigin(0.5);
+      this.add.rectangle(x, 470, 78, 28, index === 0 ? GOLD : PALE_GOLD).setStrokeStyle(2, INK);
+      this.text(x, 470, `${rank} ${prize}`, 11, INK_TEXT).setOrigin(0.5);
     });
     const coinText = this.text(WIDTH / 2, 508, `보유 코인 ${this.coins.toLocaleString()}`, 12).setOrigin(0.5);
 
-    const back = this.add.rectangle(58, 60, 82, 34, PALE_GOLD).setStrokeStyle(3, INK).setInteractive({ useHandCursor: true });
-    this.text(58, 60, '← Garage', 10, INK_TEXT).setOrigin(0.5);
+    // 뒤로가기: 다른 화면과 같은 `← 홈` 라벨, 터치 영역은 44px 이상
+    const back = widenHitArea(this.add.rectangle(58, 60, 84, 36, PALE_GOLD).setStrokeStyle(3, INK), 6);
+    this.text(58, 60, '← 홈', 11, INK_TEXT).setOrigin(0.5);
     back.on('pointerdown', () => this.hooks.onExit?.());
 
     const button = this.add.rectangle(WIDTH / 2, 566, 300, 52, GREEN).setStrokeStyle(4, INK).setInteractive({ useHandCursor: true });
     this.text(WIDTH / 2, 566, '레이스 시작', 16).setOrigin(0.5);
-    const message = this.text(WIDTH / 2, 610, '카메라 조작 없이 자동 중계를 관람합니다.', 10).setOrigin(0.5);
+    const message = this.text(WIDTH / 2, 610, '카메라 조작 없이 자동 중계를 관람합니다.', 11).setOrigin(0.5);
 
-    this.add.rectangle(WIDTH / 2, 700, 358, 96, DARK_WOOD).setStrokeStyle(3, INK);
-    this.text(30, 664, 'RIDER MOTION', 9, '#f6d995');
-    this.text(30, 684, '오르막과 내리막을 지나 결승선까지 달려보세요.\n자전거를 성장시키면 더 높은 순위에 도전할 수 있어요.\n중계 속도는 경기 중 x1·x2·x4로 바꿀 수 있어요.', 9).setLineSpacing(4);
+    // 코스 안내: 구간 순서와 구간별 속도 변화를 플레이어 문구로 설명한다
+    this.add.rectangle(WIDTH / 2, 702, 358, 104, DARK_WOOD).setStrokeStyle(3, INK);
+    // 제목 11px(658~672) 아래 본문 4줄(678~746)이 패널(650~754) 안에 들어온다
+    this.text(30, 658, '코스 안내', 11, '#f6d995');
+    const course = RACE_SEGMENTS.map((segment) => segment.name).join(' → ');
+    this.text(30, 678, `${course}\n오르막에선 속도가 떨어지고, 내리막에선 빨라집니다.\n자전거를 성장시키면 더 높은 순위에 도전할 수 있어요.\n중계 속도는 경기 중 x1·x2·x4로 바꿀 수 있어요.`, 11).setLineSpacing(4);
 
     button.on('pointerdown', () => {
       if (this.phase !== 'entry') return;
@@ -253,6 +284,8 @@ export class RaceCinematicScene extends Phaser.Scene {
     this.dashes = [];
     this.grass = [];
     this.progressDots = [];
+    this.boardRows = [];
+    this.boardTimerMs = 0;
     this.playMs = 0;
     this.speedMult = 1;
     this.groundOffset = 0;
@@ -358,7 +391,7 @@ export class RaceCinematicScene extends Phaser.Scene {
   private buildHud() {
     this.add.rectangle(WIDTH / 2, 47, WIDTH, 94, DARK_WOOD, 0.94).setDepth(20);
     this.add.rectangle(44, 17, 66, 22, RED).setStrokeStyle(2, INK).setDepth(21);
-    this.text(44, 17, `DAY ${this.dayNumber()}`, 9).setOrigin(0.5).setDepth(22);
+    this.text(44, 17, `DAY ${this.dayNumber()}`, 10).setOrigin(0.5).setDepth(22);
     this.add.rectangle(183, 17, 192, 22, GOLD).setStrokeStyle(2, INK).setDepth(21);
     this.text(183, 17, `LIVE · ${META.name}`, 10, INK_TEXT).setOrigin(0.5).setDepth(22);
     this.rankText = this.text(366, 8, '-위', 14).setOrigin(1, 0).setDepth(22);
@@ -372,21 +405,76 @@ export class RaceCinematicScene extends Phaser.Scene {
         ? this.add.rectangle(10, 43, 8, 14, RED).setStrokeStyle(2, CREAM).setDepth(25)
         : this.add.rectangle(10, 43, 5, 9, 0xd9c197).setDepth(24));
     });
-    this.distanceText = this.text(12, 54, `0 / ${META.distanceMeters.toLocaleString()}m`, 9).setDepth(22);
-    this.clockText = this.text(378, 54, '00:00.0', 9).setOrigin(1, 0).setDepth(22);
-    this.segmentText = this.text(WIDTH / 2, 62, '출발 준비', 9, INK_TEXT).setOrigin(0.5, 0).setDepth(22).setBackgroundColor('#f6d995').setPadding(8, 3, 8, 3);
+    // 거리·경과 시계는 수치이므로 최소 11px (브리프 규칙 4). y 54~69 범위라 HUD 패널(0~94)·중앙 구간 배지와 겹치지 않음
+    this.distanceText = this.text(12, 54, `0 / ${META.distanceMeters.toLocaleString()}m`, 11).setDepth(22);
+    this.clockText = this.text(378, 54, '00:00.0', 11).setOrigin(1, 0).setDepth(22);
+    this.segmentText = this.text(WIDTH / 2, 62, '출발 준비', 10, INK_TEXT).setOrigin(0.5, 0).setDepth(22).setBackgroundColor('#f6d995').setPadding(8, 3, 8, 3);
 
     // 하단 패널: 국면·라이더 상태·배속
     this.add.rectangle(103, ROAD_BOTTOM + 66, 178, 64, CREAM).setStrokeStyle(3, WOOD_LINE).setDepth(21);
-    this.text(24, ROAD_BOTTOM + 42, '현재 국면', 9, MUTED_TEXT).setDepth(22);
+    this.text(24, ROAD_BOTTOM + 42, '현재 국면', 10, MUTED_TEXT).setDepth(22);
     this.motionText = this.text(24, ROAD_BOTTOM + 60, '스탠딩 스타트', 11, INK_TEXT).setDepth(22);
     this.speedButton = this.add.rectangle(287, ROAD_BOTTOM + 66, 178, 64, GREEN).setStrokeStyle(3, INK).setInteractive({ useHandCursor: true }).setDepth(21);
     this.speedButton.on('pointerdown', () => this.cycleSpeed());
     this.speedButtonText = this.text(287, ROAD_BOTTOM + 66, '중계 속도 x1', 12).setOrigin(0.5).setDepth(22);
 
-    this.add.rectangle(WIDTH / 2, ROAD_BOTTOM + 160, 358, 96, DARK_WOOD).setStrokeStyle(3, INK).setDepth(21);
-    this.text(30, ROAD_BOTTOM + 122, 'BROADCAST NOTE', 8, '#f6d995').setDepth(22);
-    this.text(30, ROAD_BOTTOM + 142, '바퀴가 도는 만큼만 땅이 흘러가고, 케이던스는 자세를 따릅니다.\n오르막은 상체를 세우고, 내리막은 에어로 자세로 코스팅,\n마지막 450m는 안장에서 일어나 스퍼트합니다.', 8).setLineSpacing(4).setDepth(22);
+    this.buildLeaderboard();
+  }
+
+  // 실시간 순위표 패널: 상위 3명 + 나(내가 상위권이면 4위까지). 값은 updateLeaderboard가 틱마다 채운다
+  private buildLeaderboard() {
+    const top = ROAD_BOTTOM + 112;
+    this.add.rectangle(WIDTH / 2, top + 60, 358, 120, DARK_WOOD).setStrokeStyle(3, INK).setDepth(21);
+    this.text(30, top + 10, 'LIVE RANKING', 10, '#f6d995').setDepth(22);
+    // 값 칸은 달리는 중엔 진행 거리, 완주 후엔 기록을 보여 주므로 두 값을 포괄하는 헤더로 둔다
+    this.text(360, top + 10, '진행 · 기록', 10, '#f6d995').setOrigin(1, 0).setDepth(22);
+    for (let index = 0; index < BOARD_ROWS; index += 1) {
+      const y = top + 38 + index * 22;
+      const bg = this.add.rectangle(WIDTH / 2, y, 334, 20, PALE_GOLD, 0.12).setDepth(21);
+      const rank = this.text(34, y, '', 11).setOrigin(0, 0.5).setDepth(22);
+      const name = this.text(68, y, '', 11).setOrigin(0, 0.5).setDepth(22);
+      const value = this.text(356, y, '', 11).setOrigin(1, 0.5).setDepth(22);
+      this.boardRows.push({ bg, rank, name, value });
+    }
+    const player = this.racers.find((racer) => racer.data.isPlayer);
+    if (player) this.updateLeaderboard(player);
+  }
+
+  /** 현재 시점의 순위: 나보다 앞선(진행률이 크거나, 둘 다 완주했으면 기록이 빠른) 참가자 수 + 1 */
+  private liveRankOf(target: Racer): number {
+    return 1 + this.racers.filter((other) => other !== target
+      && (other.progress > target.progress + 1e-9
+        || (other.progress >= 1 && target.progress >= 1 && other.data.finishTimeMs < target.data.finishTimeMs))).length;
+  }
+
+  private updateLeaderboard(player: Racer) {
+    // 카운트다운 중에는 모두 진행 0이라 순위가 의미 없다. 출발 순서(참가자 목록 순)만 보여 주고 출발 후부터 순위를 계산한다
+    const waiting = this.phase === 'countdown' || this.playMs <= 0;
+    const ordered = waiting ? [...this.racers] : [...this.racers].sort((a, b) => {
+      if (a.progress >= 1 && b.progress >= 1) return a.data.finishTimeMs - b.data.finishTimeMs;
+      return b.progress - a.progress;
+    });
+    const rows = ordered.slice(0, BOARD_ROWS - 1);
+    if (rows.includes(player)) {
+      const next = ordered[BOARD_ROWS - 1];
+      if (next) rows.push(next);
+    } else {
+      rows.push(player);
+    }
+    rows.forEach((racer, index) => {
+      const row = this.boardRows[index];
+      if (!row) return;
+      const isPlayer = racer.data.isPlayer;
+      const finished = racer.progress >= 1;
+      row.bg.setFillStyle(isPlayer ? GOLD : PALE_GOLD, isPlayer ? 0.35 : 0.12);
+      // 출발 전에는 순위 대신 '—'
+      row.rank.setText(waiting ? '—' : `${finished ? racer.data.rank : this.liveRankOf(racer)}위`);
+      row.name.setText(isPlayer ? `나 · ${this.playerBike().name}` : racer.data.name).setColor(isPlayer ? '#f4b84a' : CREAM_TEXT);
+      // 완주한 참가자는 거리 대신 '완주 + 기록'을 보여 준다(헤더 '진행 · 기록'과 대응)
+      row.value.setText(finished
+        ? `완주 ${formatRaceTime(racer.data.finishTimeMs)}`
+        : `${Math.round(racer.progress * META.distanceMeters).toLocaleString()}m`);
+    });
   }
 
   private speedButton?: Phaser.GameObjects.Rectangle;
@@ -439,7 +527,7 @@ export class RaceCinematicScene extends Phaser.Scene {
     this.groundOffset += (groundSpeed * delta) / 1000;
     this.scrollWorld(groundSpeed);
 
-    this.updateHud(player);
+    this.updateHud(player, delta);
 
     if (this.phase === 'racing' && player.progress >= 1) {
       this.phase = 'finish-hold';
@@ -481,12 +569,15 @@ export class RaceCinematicScene extends Phaser.Scene {
     }
   }
 
-  private updateHud(player: Racer) {
+  private updateHud(player: Racer, delta: number) {
     const result = this.result!;
-    const liveRank = 1 + this.racers.filter((racer) => !racer.data.isPlayer
-      && (racer.progress > player.progress + 1e-9
-        || (racer.progress >= 1 && player.progress >= 1 && racer.data.finishTimeMs < player.data.finishTimeMs))).length;
-    this.rankText?.setText(`${player.progress >= 1 ? result.playerRank : liveRank}위 / ${META.racerCount}`);
+    this.rankText?.setText(`${player.progress >= 1 ? result.playerRank : this.liveRankOf(player)}위 / ${META.racerCount}`);
+    // 순위표는 텍스트 재생성 비용을 줄이기 위해 일정 주기로만 갱신한다
+    this.boardTimerMs += delta;
+    if (this.boardTimerMs >= BOARD_REFRESH_MS) {
+      this.boardTimerMs = 0;
+      this.updateLeaderboard(player);
+    }
     this.progressFill?.setDisplaySize(Math.max(1, player.progress * 370), 6);
     this.racers.forEach((racer, index) => this.progressDots[index]?.setX(10 + racer.progress * 370));
     const meters = Math.min(META.distanceMeters, Math.round(player.progress * META.distanceMeters));
@@ -532,6 +623,9 @@ export class RaceCinematicScene extends Phaser.Scene {
     const player = result.racers.find((racer) => racer.isPlayer)!;
     const isPodium = player.rank <= 3;
 
+    // 다른 화면과 같은 DAY 태그를 상단에 작게 둔다
+    this.add.rectangle(44, 24, 66, 22, RED).setStrokeStyle(2, INK);
+    this.text(44, 24, `DAY ${this.dayNumber()}`, 10).setOrigin(0.5);
     this.text(WIDTH / 2, 90, 'PHOTO FINISH', 28).setOrigin(0.5);
     this.text(WIDTH / 2, 140, `${player.rank}위 · ${formatRaceTime(player.finishTimeMs)}`, 22).setOrigin(0.5);
 
@@ -549,7 +643,7 @@ export class RaceCinematicScene extends Phaser.Scene {
 
     const reward = applyRaceReward(this.coins, player.rank, META);
     this.text(WIDTH / 2, 372, `${isPodium ? '상금' : '완주 수당'} +${reward.reward.toLocaleString()} 코인`, 18).setOrigin(0.5);
-    if (!isPodium) this.text(WIDTH / 2, 400, `참가비 ${META.entryFee}코인보다 적어요 — 자전거를 성장시켜 보세요`, 10).setOrigin(0.5);
+    if (!isPodium) this.text(WIDTH / 2, 400, `참가비 ${META.entryFee}코인보다 적어요 — 자전거를 성장시켜 보세요`, 11).setOrigin(0.5);
     else {
       for (let index = 0; index < 14; index += 1) {
         const confetti = this.add.rectangle(60 + (index * 53) % 270, 60, 8, 8, [GOLD, RED, GREEN, 0x4e8092][index % 4]).setStrokeStyle(1, INK);
@@ -558,7 +652,7 @@ export class RaceCinematicScene extends Phaser.Scene {
     }
 
     const button = this.add.rectangle(WIDTH / 2, 470, 280, 50, GREEN).setStrokeStyle(4, INK).setInteractive({ useHandCursor: true });
-    this.text(WIDTH / 2, 470, '보상 받고 Garage로', 14).setOrigin(0.5);
+    this.text(WIDTH / 2, 470, '보상 받고 홈으로', 14).setOrigin(0.5);
     let claimed = false;
     button.on('pointerdown', () => {
       if (claimed) return;
