@@ -94,7 +94,7 @@ export function workUnits(levels: PartLevels): number {
 
 /**
  * 작업량 → 체력 환산 비율. Lab 경제 시뮬레이터(초보 모델, 주문 30건 × 400회)의 주문당 체력 7.79 ÷ 평균 작업량 8.33.
- * 이월 부품·Lv.2 입고(20%)·연쇄 무료 상자가 섞여 실제 값은 주문마다 다르므로, 설계 검토용 추정치로만 씁니다.
+ * 이월 부품·Lv.2 입고(20%)·합성 보너스 상자가 섞여 실제 값은 주문마다 다르므로, 설계 검토용 추정치로만 씁니다.
  */
 export const ENERGY_PER_WORK_UNIT = 0.93;
 export const estimateEnergy = (units: number) => Math.round(units * ENERGY_PER_WORK_UNIT);

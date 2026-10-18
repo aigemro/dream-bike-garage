@@ -15,7 +15,7 @@ export const ORDER_DEFINITIONS: readonly OrderDefinition[] = [
   { id: 'urban-road-1', bikeId: 'urban-road', name: '통학용 어반 로드', category: 'city', grade: '입문', levels: { frame: 2, wheel: 2, drivetrain: 1, handlebar: 1 }, reward: 1000, note: '작업량 6. Day 1 슬롯 0 고정(변경 불가). 시작 보드 지급 부품만으로 합성→자동 장착→납품을 배운다. 이후 Day 10 단골 재주문' },
   { id: 'urban-road-2', bikeId: 'urban-road', name: '출근용 어반 로드', category: 'city', grade: '입문', levels: { frame: 1, wheel: 2, drivetrain: 1, handlebar: 2 }, reward: 1000, note: '작업량 6. Day 1 마지막 슬롯. 핸들바 Lv.2로 부품마다 요구가 다름을 보여 주고 이월 부품으로 첫 도감 등록을 만든다' },
   { id: 'touring-road-1', bikeId: 'touring-road', name: '주말 라이딩용 투어링 로드', category: 'road', grade: '입문', levels: { frame: 2, wheel: 1, drivetrain: 2, handlebar: 1 }, reward: 1000, note: '작업량 6. 로드(road 렌더) 첫 등장(Day 2 마감). 구동계 Lv.2. 대회일(Day 15·20) 쉬운 마감 단골' },
-  { id: 'touring-road-2', bikeId: 'touring-road', name: '국토종주 준비용 투어링 로드', category: 'road', grade: '입문', levels: { frame: 2, wheel: 2, drivetrain: 2, handlebar: 1 }, reward: 1000, note: '작업량 7. Lv.2 3종 — 합성 3회로 연쇄 보너스를 자연스럽게 경험(Day 3 등록)' },
+  { id: 'touring-road-2', bikeId: 'touring-road', name: '국토종주 준비용 투어링 로드', category: 'road', grade: '입문', levels: { frame: 2, wheel: 2, drivetrain: 2, handlebar: 1 }, reward: 1000, note: '작업량 7. Lv.2 3종 — 합성 3회로 합성 보너스(무료 상자)를 자연스럽게 경험(Day 3 등록)' },
   { id: 'hardtail-mtb-1', bikeId: 'hardtail-mtb', name: '뒷산 입문용 하드테일 MTB', category: 'mtb', grade: '입문', levels: { frame: 2, wheel: 2, drivetrain: 1, handlebar: 1 }, reward: 1000, note: '작업량 6. MTB 카테고리 첫 등장(Day 2). 어반 로드와 같은 요구라 Day 1 이월 부품 재활용을 배운다' },
   { id: 'hardtail-mtb-2', bikeId: 'hardtail-mtb', name: '동호회 신입용 하드테일 MTB', category: 'mtb', grade: '입문', levels: { frame: 2, wheel: 1, drivetrain: 1, handlebar: 2 }, reward: 1000, note: '작업량 6. 쉬운 마감용(Day 3 등록). 이후 Day 10·19 단골 재주문 필러' },
   { id: 'allroad-gravel-1', bikeId: 'allroad-gravel', name: '출퇴근 겸용 올로드 그래블', category: 'gravel', grade: '입문', levels: { frame: 1, wheel: 2, drivetrain: 2, handlebar: 1 }, reward: 1000, note: '작업량 6. 그래블 카테고리 첫 등장(Day 3). 프레임 Lv.1로 충분한 주문' },
@@ -45,7 +45,7 @@ export const ORDER_DEFINITIONS: readonly OrderDefinition[] = [
   { id: 'gravel-explorer-1', bikeId: 'gravel-explorer', name: '비포장 탐험용 그래블 익스플로러', category: 'gravel', grade: '중급', levels: { frame: 3, wheel: 2, drivetrain: 2, handlebar: 1 }, reward: 1400, note: '작업량 9. 중급 그래블 첫 등장(Day 7). 반복 구간 대회일 메인(Day 30)' },
   { id: 'gravel-explorer-2', bikeId: 'gravel-explorer', name: '제주 일주용 그래블 익스플로러', category: 'gravel', grade: '중급', levels: { frame: 3, wheel: 1, drivetrain: 3, handlebar: 1 }, reward: 1500, note: '작업량 10. 프레임+구동계 Lv.3 동시 요구. 반복 구간 중급 메인(Day 22)' },
   { id: 'gravel-explorer-3', bikeId: 'gravel-explorer', name: '주말 농장 출퇴근용 그래블 익스플로러', category: 'gravel', grade: '중급', levels: { frame: 1, wheel: 3, drivetrain: 2, handlebar: 1 }, reward: 1400, note: '작업량 8. 마감 주문(Day 9 등록, 대회 전날)' },
-  { id: 'bikepacking-gravel-1', bikeId: 'bikepacking-gravel', name: '1박 2일 백패킹용 그래블', category: 'gravel', grade: '중급', levels: { frame: 2, wheel: 2, drivetrain: 2, handlebar: 2 }, reward: 1400, note: '작업량 8. 4종 Lv.2 — 연쇄 보너스용 마감 주문(Day 7 첫 등장, Day 22·27). 카탈로그 힌트 \'연속 주문\'은 Day 7 → Day 10 2차 납품 흐름으로 표현' },
+  { id: 'bikepacking-gravel-1', bikeId: 'bikepacking-gravel', name: '1박 2일 백패킹용 그래블', category: 'gravel', grade: '중급', levels: { frame: 2, wheel: 2, drivetrain: 2, handlebar: 2 }, reward: 1400, note: '작업량 8. 4종 Lv.2 — 합성 보너스용 마감 주문(Day 7 첫 등장, Day 22·27). 카탈로그 힌트 \'연속 주문\'은 Day 7 → Day 10 2차 납품 흐름으로 표현' },
   { id: 'bikepacking-gravel-2', bikeId: 'bikepacking-gravel', name: '장기 여행용 백패킹 그래블', category: 'gravel', grade: '중급', levels: { frame: 3, wheel: 2, drivetrain: 2, handlebar: 2 }, reward: 1500, note: '작업량 10. 2차 대회날 메인(Day 10 등록, 12대)' },
   { id: 'cargo-mini-1', bikeId: 'cargo-mini', name: '배달용 카고 미니벨로', category: 'minivelo', grade: '중급', levels: { frame: 3, wheel: 2, drivetrain: 1, handlebar: 2 }, reward: 1400, note: '작업량 9. 카탈로그 힌트 \'배달 주문\'. 중급 미니벨로 첫 등장(Day 9), 같은 배달업체가 Day 14에 재주문해 같은 정의로 등록' },
   { id: 'classic-mini-1', bikeId: 'classic-mini', name: '빈티지 애호가용 클래식 미니벨로', category: 'minivelo', grade: '중급', levels: { frame: 2, wheel: 2, drivetrain: 2, handlebar: 2 }, reward: 1400, note: '작업량 8. 마감 주문(Day 8 첫 등장, Day 17·26·30)' },
@@ -70,7 +70,7 @@ export const DAY_PLANS: readonly DayPlan[] = [
   { day: 4, slots: ['classic-randonneur-1', 'allroad-gravel-2', 'city-mini-1'], intent: '대회 전날. 중급 로드(랜도너) 공개 = 휠 Lv.3 첫 요구. 올로드 등록. 미니벨로 카테고리를 쉬운 마지막 슬롯으로 공개. 정산에서 참가비 500·대표 자전거 강화 안내' },
   { day: 5, slots: ['city-mini-2', 'singlespeed-gravel-1', 'folding-mini-1'], intent: '첫 대회날(리버사이드 3K). 가벼운 입문 3건(19). 시티 미니벨로 등록, 싱글스피드·폴딩 첫 등장' }, // 대회일
   { day: 6, slots: ['xc-mtb-1', 'folding-mini-2', 'singlespeed-gravel-2'], intent: '견습공 시작. 중급 XC 첫 등장. 싱글스피드·폴딩 등록 → 입문 7대 도감 완성' },
-  { day: 7, slots: ['gravel-explorer-1', 'bikepacking-gravel-1', 'classic-randonneur-2'], intent: '중급 그래블(익스플로러) 첫 등장, 백패킹 첫 등장(4종 Lv.2 연쇄 보너스). 랜도너 등록' },
+  { day: 7, slots: ['gravel-explorer-1', 'bikepacking-gravel-1', 'classic-randonneur-2'], intent: '중급 그래블(익스플로러) 첫 등장, 백패킹 첫 등장(4종 Lv.2 합성 보너스). 랜도너 등록' },
   { day: 8, slots: ['xc-mtb-2', 'fat-bike-1', 'classic-mini-1'], intent: '게임 첫 Lv.3 2종 동시 요구(3/3/1/1) → XC 등록. 팻바이크(겨울 주문)·클래식 미니 첫 등장은 8작업량 마감으로 보드 회복' },
   { day: 9, slots: ['cargo-mini-1', 'gravel-explorer-3', 'trail-mtb-2'], intent: '대회 전날. 배달용 카고 미니벨로 첫 등장, 익스플로러 등록. 중급 마감으로 25 — 참가비·강화 여유' },
   { day: 10, slots: ['bikepacking-gravel-2', 'hardtail-mtb-2', 'urban-road-1'], intent: '2차 대회날. 중급 메인 1건(백패킹 등록, 12대) + 입문 단골 2건으로 가볍게(22)' }, // 대회일
@@ -107,7 +107,7 @@ export const CHAPTERS: readonly Chapter[] = [
     dayFrom: 1,
     dayTo: 5,
     goal: '합성·상자·Lv.3·이월·도감 등록·제작·강화·대회 참가의 한 바퀴를 5일 안에 모두 경험한다. 입문 5대(어반·투어링·하드테일·올로드·시티 미니)와 첫 중급(트레일 MTB)까지 6대를 등록하고, 1일차 정산 뒤 첫 제작, 홈 NEXT GOAL이 참가비·강화를 안내, Day 5 첫 대회. 매일 작업량 19~22(체력 18~20)로 \'한 번 접속 = 하루 영업\' 리듬을 몸에 익힌다',
-    teaches: ['맞닿은 같은 부품 2개 합성 → 요구 레벨 이상이면 자동 장착 → 4종 장착 = 납품·급여 (Day 1 슬롯 0, 상자 없이 끝남)', '상자 1개 = 체력 1, 미장착 종류 70% 우선 입고, Lv.3은 두 단계 합성 (Day 1 슬롯 1 트레일 3/2/2/1 — 현행 순번 1 유지)', '남은 부품은 다음 주문으로 이월, 같은 자전거 2회 납품 = 이해도 100% 도감 등록 (Day 1 슬롯 2 어반 로드 1/2/1/2)', '체력 0 → 10분당 1 회복 대기, 반품으로 자리 비우기 (Day 2 중반, 누적 체력 39)', '연쇄 보너스: 상자 없이 합성 3회 = 무료 상자 (Lv.2 3종 주문, Day 3~4)', '코인으로 등록 자전거 부품 제작(보유), 대표 자전거 강화와 참가비 500 (홈 NEXT GOAL 안내, 1일차 첫 납품 직후부터)', 'Day 5마다 자동 레이스(리버사이드 3K)'],
+    teaches: ['맞닿은 같은 부품 2개 합성 → 요구 레벨 이상이면 자동 장착 → 4종 장착 = 납품·급여 (Day 1 슬롯 0, 상자 없이 끝남)', '상자 1개 = 체력 1, 미장착 종류 70% 우선 입고, Lv.3은 두 단계 합성 (Day 1 슬롯 1 트레일 3/2/2/1 — 현행 순번 1 유지)', '남은 부품은 다음 주문으로 이월, 같은 자전거 2회 납품 = 이해도 100% 도감 등록 (Day 1 슬롯 2 어반 로드 1/2/1/2)', '체력 0 → 10분당 1 회복 대기, 반품으로 자리 비우기 (Day 2 중반, 누적 체력 39)', '합성 보너스: 합성 3회 = 무료 상자, 5회 = 확정 상자 (Lv.2 3종 주문, Day 3~4)', '코인으로 등록 자전거 부품 제작(보유), 대표 자전거 강화와 참가비 500 (홈 NEXT GOAL 안내, 1일차 첫 납품 직후부터)', 'Day 5마다 자동 레이스(리버사이드 3K)'],
     unlocks: ['카테고리: 로드(city·road, Day 1~2) → MTB(Day 2) → 그래블(Day 3) → 미니벨로(Day 4)', '등급: 입문(1,000), 중급(트레일 Day 1~2 · 랜도너 Day 4, 1,400)', '1차 대회(Day 5)'],
   },
   {
