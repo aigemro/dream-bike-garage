@@ -10,7 +10,6 @@ import {
   formatDuration,
   grantAdRefill,
   isEnergyEmpty,
-  localDateKey,
   msUntilFullEnergy,
   parseAdRefillRecord,
   type AdRefillRecord,
@@ -69,40 +68,35 @@ describe('남은 시간 표시', () => {
 });
 
 describe('보상형 광고 충전 제안', () => {
-  // 2026-10-18 12:00 (기기 시간대 기준)
-  const NOON = new Date(2026, 9, 18, 12, 0, 0).getTime();
-  const today = localDateKey(NOON);
-
-  it('체력이 기준 이하이고 오늘 횟수·간격이 남았을 때만 제안한다', () => {
-    expect(adOffer({ energy: REWARDED_AD_POLICY.maxEnergy }, null, NOON)).toEqual({ available: true, block: null, left: 3, cooldownMs: 0 });
-    expect(adOffer({ energy: REWARDED_AD_POLICY.maxEnergy + 1 }, null, NOON)).toMatchObject({ available: false, block: 'energy-high' });
+  it('체력이 기준 이하이면 제안하고, 넘으면 체력 조건으로만 막는다', () => {
+    expect(adOffer({ energy: REWARDED_AD_POLICY.maxEnergy })).toEqual({ available: true, block: null });
+    expect(adOffer({ energy: 0 })).toEqual({ available: true, block: null });
+    expect(adOffer({ energy: REWARDED_AD_POLICY.maxEnergy + 1 })).toEqual({ available: false, block: 'energy-high' });
   });
 
-  it('마지막 충전 뒤 간격이 지나야 다시 제안하고, 시계가 뒤로 가도 간격 한 번보다 오래 막지 않는다', () => {
-    const record: AdRefillRecord = { date: today, count: 1, lastRewardAt: NOON, lastRequestId: 'a' };
-    expect(adOffer({ energy: 0 }, record, NOON + 60_000)).toMatchObject({ available: false, block: 'cooldown', left: 2, cooldownMs: REWARDED_AD_POLICY.cooldownMs - 60_000 });
-    expect(adOffer({ energy: 0 }, record, NOON + REWARDED_AD_POLICY.cooldownMs).available).toBe(true);
-    expect(adOffer({ energy: 0 }, record, NOON - 60 * 60_000).cooldownMs).toBe(REWARDED_AD_POLICY.cooldownMs);
-  });
-
-  it('하루 횟수는 기기 날짜가 바뀌면 초기화되고, 시계를 과거로 돌려도 초기화되지 않는다', () => {
-    const record: AdRefillRecord = { date: today, count: 3, lastRewardAt: NOON - 3 * 60 * 60_000, lastRequestId: 'c' };
-    expect(adOffer({ energy: 0 }, record, NOON)).toMatchObject({ available: false, block: 'daily-limit', left: 0 });
-    const tomorrow = new Date(2026, 9, 19, 0, 1).getTime();
-    expect(adOffer({ energy: 0 }, record, tomorrow)).toMatchObject({ available: true, left: 3 });
-    const yesterday = new Date(2026, 9, 17, 12, 0).getTime();
-    expect(adOffer({ energy: 0 }, record, yesterday)).toMatchObject({ available: false, block: 'daily-limit' });
+  it('하루 횟수·충전 간격 제한이 없어 연달아 충전할 수 있다', () => {
+    const state = { energy: 0, energyAnchor: NOW };
+    let record: AdRefillRecord | null = null;
+    for (let i = 0; i < 10; i += 1) {
+      state.energy = 0; // 받은 체력을 바로 다 썼다고 봅니다.
+      expect(adOffer(state).available).toBe(true);
+      record = grantAdRefill(state, record, `req-${i}`, NOW + i);
+      expect(record).not.toBeNull();
+      expect(state.energy).toBe(REWARDED_AD_POLICY.amount);
+    }
+    expect(record?.count).toBe(10);
   });
 });
 
 describe('보상형 광고 충전 지급', () => {
   const NOON = new Date(2026, 9, 18, 12, 0, 0).getTime();
 
-  it('보상 1회에 체력 +10, 횟수 +1, 간격 기준 시각을 기록한다', () => {
+  it('보상 1회에 체력 +10, 누적 횟수 +1, 보상 시각·요청 식별자를 기록한다', () => {
     const state = { energy: 3, energyAnchor: NOON - 1000 };
     const record = grantAdRefill(state, null, 'req-1', NOON);
     expect(state).toEqual({ energy: 3 + REWARDED_AD_POLICY.amount, energyAnchor: NOON - 1000 });
-    expect(record).toEqual({ date: localDateKey(NOON), count: 1, lastRewardAt: NOON, lastRequestId: 'req-1' });
+    expect(record).toEqual({ count: 1, lastRewardAt: NOON, lastRequestId: 'req-1' });
+    expect(grantAdRefill(state, record, 'req-2', NOON + 1)).toEqual({ count: 2, lastRewardAt: NOON + 1, lastRequestId: 'req-2' });
   });
 
   it('같은 요청의 보상 이벤트가 두 번 와도 한 번만 반영한다', () => {
@@ -118,19 +112,21 @@ describe('보상형 광고 충전 지급', () => {
     expect(state).toEqual({ energy: ENERGY_MAX, energyAnchor: NOON });
   });
 
-  it('오늘 횟수를 다 썼으면 지급하지 않는다', () => {
-    const state = { energy: 0, energyAnchor: NOON };
-    const full: AdRefillRecord = { date: localDateKey(NOON), count: REWARDED_AD_POLICY.perDay, lastRewardAt: NOON - 60 * 60_000, lastRequestId: 'old' };
-    expect(grantAdRefill(state, full, 'req-new', NOON)).toBeNull();
-    expect(state.energy).toBe(0);
+  it('기록을 복구하고, 손상된 기록은 기록 없음으로 본다', () => {
+    expect(parseAdRefillRecord({ count: 1, lastRewardAt: 5, lastRequestId: 'a' })).toEqual({ count: 1, lastRewardAt: 5, lastRequestId: 'a' });
+    expect(parseAdRefillRecord({ count: 0, lastRewardAt: null, lastRequestId: null })).not.toBeNull();
+    expect(parseAdRefillRecord({ count: -1, lastRewardAt: null, lastRequestId: null })).toBeNull();
+    expect(parseAdRefillRecord({ count: 1, lastRewardAt: -5, lastRequestId: null })).toBeNull();
+    expect(parseAdRefillRecord({ count: 1, lastRewardAt: null, lastRequestId: 7 })).toBeNull();
+    expect(parseAdRefillRecord('nope')).toBeNull();
   });
 
-  it('손상된 기록은 기록 없음으로 복구한다', () => {
-    expect(parseAdRefillRecord({ date: '2026-10-18', count: 1, lastRewardAt: 5, lastRequestId: 'a' })).toEqual({ date: '2026-10-18', count: 1, lastRewardAt: 5, lastRequestId: 'a' });
-    expect(parseAdRefillRecord({ date: '2026-10-18', count: 1, lastRewardAt: null, lastRequestId: null })).not.toBeNull();
-    expect(parseAdRefillRecord({ date: 'today', count: 1, lastRewardAt: null, lastRequestId: null })).toBeNull();
-    expect(parseAdRefillRecord({ date: '2026-10-18', count: -1, lastRewardAt: null, lastRequestId: null })).toBeNull();
-    expect(parseAdRefillRecord('nope')).toBeNull();
+  it('하루 횟수 제한이 있던 이전 기록은 날짜를 버리고 이어서 쓴다(중복 보상 방지 유지)', () => {
+    const legacy = parseAdRefillRecord({ date: '2026-10-18', count: 3, lastRewardAt: NOON, lastRequestId: 'old' });
+    expect(legacy).toEqual({ count: 3, lastRewardAt: NOON, lastRequestId: 'old' });
+    const state = { energy: 0, energyAnchor: NOON };
+    expect(grantAdRefill(state, legacy, 'old', NOON + 1)).toBeNull();
+    expect(grantAdRefill(state, legacy, 'new', NOON + 1)).toEqual({ count: 4, lastRewardAt: NOON + 1, lastRequestId: 'new' });
   });
 });
 

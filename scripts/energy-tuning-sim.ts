@@ -37,6 +37,9 @@ const LOOKAHEAD = 6;
 const ACTION_SEC = Number(process.argv[3] ?? 2); // 합성·상자·반품 1회
 const DAY_TRANSITION_SEC = 20; // 정산 화면 → 다음 Day 시작
 const AD_SEC = 30; // 보상형 광고 1편
+// 비교 당시(2026-10-18) #92 초안의 광고 제한. 이후 제한을 없앴지만(REWARDED_AD_POLICY) 비교표 재현을 위해 여기 고정합니다.
+const AD_PER_DAY = 3;
+const AD_COOLDOWN_SEC = 10 * 60;
 
 const schedule = buildOrderSchedule(LEVEL_DESIGN).workbench;
 const orderList = orderListOf(schedule);
@@ -222,7 +225,7 @@ function replay(steps: Step[], variant: Variant, ads: boolean, startDay = 1, end
     energy = Math.min(variant.max, energy + ticks);
     anchor = energy >= variant.max ? t : anchor + ticks * period(day);
   };
-  const adReadyAt = () => (ads && adCount < REWARDED_AD_POLICY.perDay ? Math.max(t, lastAd + REWARDED_AD_POLICY.cooldownMs / 1000) : Infinity);
+  const adReadyAt = () => (ads && adCount < AD_PER_DAY ? Math.max(t, lastAd + AD_COOLDOWN_SEC) : Infinity);
   const watchAd = () => {
     t += AD_SEC;
     recover();
