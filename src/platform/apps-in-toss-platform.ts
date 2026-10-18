@@ -1,7 +1,8 @@
 // 앱인토스(토스 앱 WebView) 플랫폼: SDK 호출은 이 파일에만 둡니다.
 // 웹 빌드에는 포함되지 않도록 platform/index.ts에서 앱인토스 빌드일 때만 불러옵니다.
 // 개발 서버(npm run dev:toss)에서는 @apps-in-toss/devtools가 SDK를 mock으로 바꿉니다.
-import { Device, SafeArea, Screen, Storage, User, graniteEvent, loadFullScreenAd, showFullScreenAd } from '@apps-in-toss/web-framework';
+import { Analytics, Device, SafeArea, Screen, Storage, User, graniteEvent, loadFullScreenAd, showFullScreenAd } from '@apps-in-toss/web-framework';
+import { createSdkEventLogger } from './analytics';
 import { TEST_REWARDED_AD_GROUP_ID, createFullScreenRewardedAd } from './rewarded-ad';
 import type { GamePlatform, HapticKind, SafeAreaInsets } from './types';
 
@@ -64,6 +65,8 @@ export function createAppsInTossPlatform(): GamePlatform {
       }
     },
     rewardedAd: createFullScreenRewardedAd({ loadFullScreenAd, showFullScreenAd }, REWARDED_AD_GROUP_ID),
+    // 샌드박스에서는 SDK가 콘솔에만 출력하고, 토스앱 5.208.0 미만에서는 조용히 무시됩니다. anonymous_key는 SDK가 붙입니다.
+    logEvent: createSdkEventLogger((params) => Analytics.log(params)),
     onSafeAreaChange(listener) {
       try {
         return SafeArea.subscribe({ onEvent: (insets) => { const value = toInsets(insets); if (value) listener(value); } });

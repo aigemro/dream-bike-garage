@@ -6,6 +6,7 @@
 import Phaser from 'phaser';
 import { drawPixelBike, drawPixelPartIcon, makeWarmColorway, bikePartAnchorOffset, WARM_PART_COLORS } from './bike-pixel-sprite';
 import { orderMetaAt } from './meta-progress';
+import type { AdOfferEntry } from './ad-refill-events';
 import type { ReleaseSfxEvent } from './release-audio';
 import {
   COMBO_FREE_BOX,
@@ -92,8 +93,11 @@ export type WorkbenchRewardedAd = {
   preload: () => void;
   // 광고 1회 시청(일시정지·저장·보상 반영은 컨트롤러가 함). 끝나면 결과를 돌려줍니다.
   watch: () => Promise<RewardedAdWatchResult>;
-  // 광고가 끝나지 않을 때 기다림을 그만둡니다.
+  // 광고가 끝나지 않을 때 기다림을 그만둡니다('돌아가기' 기록 포함).
   cancel: () => void;
+  // 이벤트 기록(#92): 체력 카드에 광고 버튼이 '가능'으로 보임 · 부품 상자를 엶(광고 뒤 플레이 지속 확인)
+  offerShown: (entry: AdOfferEntry) => void;
+  boxOpened: () => void;
 };
 
 export type WorkbenchDaySummary = { dayNumber: number; done: number; target: number; earnings: number; closing: boolean };
@@ -158,6 +162,9 @@ class MergeWorkbenchScene extends Phaser.Scene {
   // 체력 카드: 열려 있는 동안 뒤쪽 입력을 막고, 회복 시간·광고 버튼을 1초마다 갱신합니다.
   private energyCard?: Phaser.GameObjects.Container;
   private energyCardEmpty = false;
+  // 카드를 연 경로와, 이번에 연 카드에서 광고 제안 노출을 이미 기록했는지
+  private energyCardEntry: AdOfferEntry = 'energy';
+  private energyCardOfferLogged = false;
   private energyCardTag?: Phaser.GameObjects.Text;
   private energyCardNext?: Phaser.GameObjects.Text;
   private energyCardFull?: Phaser.GameObjects.Text;
@@ -688,7 +695,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
     if (!events) {
       if (supplyBlock(this.state) === 'energy') {
         this.hooks.onSfx?.('tap');
-        this.openEnergyCard();
+        this.openEnergyCard('box');
       } else {
         this.say('작업대에 빈칸이 없어요. 합성하거나 부품을 반품해 자리를 만드세요.', 'error');
       }
@@ -696,6 +703,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
       return;
     }
     if (this.selected !== NONE && !this.state.board[this.selected]) this.selected = NONE;
+    this.hooks.rewardedAd?.boxOpened();
     this.commit(events);
     // 마지막 체력을 쓴 순간: 납품 안내가 없으면 다음에 할 수 있는 일을 알려 줍니다.
     if (isEnergyEmpty(this.state) && !events.some((event) => event.type === 'delivered')) {
@@ -709,11 +717,13 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private onEnergyTap() {
     if (this.blockedByDay() || this.adOverlay) return;
     this.hooks.onSfx?.('tap');
-    this.openEnergyCard();
+    this.openEnergyCard('energy');
   }
 
-  private openEnergyCard() {
+  private openEnergyCard(entry: AdOfferEntry) {
     if (this.energyCard || this.adOverlay) return;
+    this.energyCardEntry = entry;
+    this.energyCardOfferLogged = false;
     this.cancelDrag();
     this.clearHint();
     const empty = isEnergyEmpty(this.state);
@@ -787,6 +797,11 @@ class MergeWorkbenchScene extends Phaser.Scene {
     const ad = this.hooks.rewardedAd;
     if (!ad || !this.energyCardAd) return;
     const offer = ad.offer();
+    // 카드를 한 번 열 때마다, 광고 버튼이 처음 '가능'으로 보인 순간 한 번 기록합니다(열린 채 쿨다운이 끝나도 포함).
+    if (offer.available && !this.energyCardOfferLogged) {
+      this.energyCardOfferLogged = true;
+      ad.offerShown(this.energyCardEntry);
+    }
     const { button, label } = this.energyCardAd;
     button.setFillStyle(offer.available ? GREEN : 0xe8d3a6).setStrokeStyle(3, offer.available ? BORDER : 0xb08a6a);
     label.setColor(offer.available ? CREAM_TEXT : MUTED).setText(offer.available
