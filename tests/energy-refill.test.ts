@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { ENERGY_MAX, ENERGY_RECOVERY_MS, msUntilNextEnergy, recoverEnergy, createWorkbench, type WorkbenchOrder } from '../src/domain/merge-workbench';
 import {
   REWARDED_AD_POLICY,
+  SETTLEMENT_REFILL_LAST_DAY,
   adOffer,
+  applySettlementRefill,
+  hasSettlementRefill,
   formatDuration,
   grantAdRefill,
   isEnergyEmpty,
@@ -12,6 +15,7 @@ import {
   parseAdRefillRecord,
   type AdRefillRecord,
 } from '../src/domain/energy-refill';
+import { RIVERSIDE_ENDURANCE_RACE, nextRaceDay } from '../src/game/release/race-progress';
 
 const ORDERS: WorkbenchOrder[] = [{ levels: { frame: 2, wheel: 2, drivetrain: 1, handlebar: 1 }, reward: 1000 }];
 const NOW = 1_000_000;
@@ -127,5 +131,46 @@ describe('보상형 광고 충전 지급', () => {
     expect(parseAdRefillRecord({ date: 'today', count: 1, lastRewardAt: null, lastRequestId: null })).toBeNull();
     expect(parseAdRefillRecord({ date: '2026-10-18', count: -1, lastRewardAt: null, lastRequestId: null })).toBeNull();
     expect(parseAdRefillRecord('nope')).toBeNull();
+  });
+});
+
+describe('첫 대회 전 정산 지원 (#77 (e)안)', () => {
+  it('지원 마지막 영업일은 첫 대회의 전날이다', () => {
+    expect(SETTLEMENT_REFILL_LAST_DAY).toBe(nextRaceDay(1, RIVERSIDE_ENDURANCE_RACE) - 1);
+  });
+
+  it('1~4일차 정산만 지원하고 대회일·이후·잘못된 값은 지원하지 않는다', () => {
+    expect([1, 2, 3, 4].every(hasSettlementRefill)).toBe(true);
+    expect([0, 5, 6, 10, -1, 1.5, Number.NaN].some(hasSettlementRefill)).toBe(false);
+  });
+
+  it('지원 구간이면 체력을 가득 채우고 회복 기준 시각을 지금으로 옮긴다', () => {
+    const state = createWorkbench(ORDERS, NOW);
+    state.energy = 3;
+    state.energyAnchor = NOW - 7 * 60 * 1000;
+    const later = NOW + 1000;
+    expect(applySettlementRefill(state, 2, later)).toBe(ENERGY_MAX - 3);
+    expect(state.energy).toBe(ENERGY_MAX);
+    expect(state.energyAnchor).toBe(later);
+    expect(msUntilNextEnergy(state, later)).toBe(0);
+  });
+
+  it('여러 번 불러도 결과가 같고, 이미 가득이면 0을 돌려준다', () => {
+    const state = createWorkbench(ORDERS, NOW);
+    state.energy = 10;
+    applySettlementRefill(state, 1, NOW);
+    expect(applySettlementRefill(state, 1, NOW)).toBe(0);
+    expect(state.energy).toBe(ENERGY_MAX);
+  });
+
+  it('첫 대회일부터는 체력을 건드리지 않고 현행 회복만 적용한다', () => {
+    const state = createWorkbench(ORDERS, NOW);
+    state.energy = 5;
+    state.energyAnchor = NOW;
+    expect(applySettlementRefill(state, 5, NOW + 1000)).toBe(0);
+    expect(state.energy).toBe(5);
+    expect(state.energyAnchor).toBe(NOW);
+    recoverEnergy(state, NOW + 2 * ENERGY_RECOVERY_MS);
+    expect(state.energy).toBe(7);
   });
 });
