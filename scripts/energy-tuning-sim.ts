@@ -18,6 +18,7 @@ import {
   orderIndexOf,
   orderListOf,
   placePickBox,
+  settleWorkbench,
   ENERGY_MAX,
   type WorkbenchEvent,
   type WorkbenchPartType,
@@ -146,13 +147,17 @@ function playTrace(seed: number): Trace {
   let freeBoxes = 0;
   let pickBoxes = 0;
   let discards = 0;
-  const record = (cost: 0 | 1, events: WorkbenchEvent[]) => {
+  // auto: 행동 없이 화면이 이어서 정리한 결과(납품이 없으면 행동으로 세지 않음)
+  const record = (cost: 0 | 1, events: WorkbenchEvent[], auto = false) => {
     events.forEach((event) => {
       if (event.type === 'bonus') { if (event.bonus === 'free-box') freeBoxes += 1; else pickBoxes += 1; }
     });
     const delivered = events.find((event) => event.type === 'delivered');
+    if (auto && !delivered) return;
     const dayEnded = delivered && delivered.type === 'delivered' && (delivered.order + 1) % ORDERS_PER_DAY === 0 ? (delivered.order + 1) / ORDERS_PER_DAY : null;
     steps.push({ cost, dayEnded });
+    // 화면은 납품 연출 뒤 settleWorkbench로 남은 부품을 다음 주문에 장착합니다(그 장착으로 또 납품될 수 있음).
+    if (delivered) record(0, settleWorkbench(state, schedule), true);
   };
   // 시작 보드에서 이미 납품된 주문은 없지만, 안전하게 순번으로 끝을 판단합니다.
   for (let guard = 0; state.order < DAYS * ORDERS_PER_DAY; guard += 1) {
