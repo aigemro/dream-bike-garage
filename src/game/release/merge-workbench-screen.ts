@@ -35,7 +35,8 @@ import {
   type WorkbenchPartType,
   type WorkbenchState,
 } from '../../domain/merge-workbench';
-import { recommendMerge, shouldShowHint, type MergeHintReason } from '../../domain/merge-assist';
+import { hasMerge, recommendMerge, shouldShowHint, type MergeHintReason } from '../../domain/merge-assist';
+import { formatDuration, isEnergyEmpty, msUntilFullEnergy } from '../../domain/energy-refill';
 
 const FONT = '"Arial Rounded MT Bold", "Noto Sans KR", sans-serif';
 const INK = '#3b2531';
@@ -71,6 +72,8 @@ const ROW1_Y = 708;
 const ROW2_Y = 762;
 const BOX = { x: 136, y: ROW1_Y, w: 240, h: 48 };
 const RETURN_CONFIRM_MS = 2500;
+// 체력 소진 안내 카드 (Lab #263 A안): 보드 가운데에 겹쳐 띄웁니다.
+const CARD = { x: 195, y: 430, w: 330, h: 300 };
 const NONE = -1;
 
 const PART_NAMES: Record<WorkbenchPartType, string> = { frame: '프레임', wheel: '휠셋', drivetrain: '구동계', handlebar: '핸들바' };
@@ -138,6 +141,10 @@ class MergeWorkbenchScene extends Phaser.Scene {
   // 합성 추천(Lab #264 B안): 마지막 입력 시각과 지금 보여 주는 중인지
   private lastInputAt = 0;
   private hintShown = false;
+  // 체력 소진 안내 카드: 열려 있는 동안 뒤쪽 입력을 막고, 회복 시간을 1초마다 갱신합니다.
+  private exhaustCard?: Phaser.GameObjects.Container;
+  private exhaustNext?: Phaser.GameObjects.Text;
+  private exhaustFull?: Phaser.GameObjects.Text;
   // 연출 순서: 상태는 즉시 바뀌고, 주문 카드는 이벤트 연출을 따라 늦게 바뀝니다.
   private queue: Promise<void> = Promise.resolve();
   private generation = 0;
@@ -469,7 +476,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
       .setText(block === 'full'
         ? '작업대가 가득 찼어요 · 반품으로 자리 확보'
         : block === 'energy'
-          ? `체력 회복 중 · 다음 +1 ${clockLabel(msUntilNextEnergy(this.state, now))}`
+          ? '체력 소진 · 눌러서 회복 안내 보기'
           : `${free ? '무료 상자 · 체력 소모 없음' : '점선 칸에 자동 배치'}${sure ? ' · 필수 부품 확정' : ''}`)
       .setColor(block ? ALERT : free || sure ? SUCCESS : MUTED);
     this.boxCost.setText(free ? `무료 ×${this.state.freeBoxes}` : '⚡ −1').setColor(free ? SUCCESS : ALERT);
@@ -503,6 +510,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
     recoverEnergy(this.state, Date.now());
     if (before !== this.state.energy) this.hooks.onChange();
     this.renderShelf();
+    this.refreshExhaustCard();
   }
 
   // ── 합성 추천 (Lab #264 B안) ──
@@ -515,7 +523,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
   }
 
   private maybeHint() {
-    if (!this.alive || this.hintShown || this.drag || !this.hooks.canPlay()) return;
+    if (!this.alive || this.hintShown || this.drag || this.exhaustCard || !this.hooks.canPlay()) return;
     const selecting = this.selected !== NONE && !!this.state.board[this.selected];
     if (!shouldShowHint(this.state, performance.now() - this.lastInputAt, selecting)) return;
     const pick = recommendMerge(this.state, this.hooks.orders);
@@ -648,14 +656,83 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.cancelDrag();
     const events = openPartBox(this.state, this.hooks.orders, Date.now());
     if (!events) {
-      this.say(supplyBlock(this.state) === 'full'
-        ? '작업대에 빈칸이 없어요. 합성하거나 부품을 반품해 자리를 만드세요.'
-        : `알바 체력이 부족해요. ${clockLabel(msUntilNextEnergy(this.state, Date.now()))} 뒤 1 회복돼요. 오늘 진행은 그대로 저장돼요.`, 'error');
+      if (supplyBlock(this.state) === 'energy') {
+        this.hooks.onSfx?.('tap');
+        this.openExhaustCard();
+      } else {
+        this.say('작업대에 빈칸이 없어요. 합성하거나 부품을 반품해 자리를 만드세요.', 'error');
+      }
       this.renderShelf();
       return;
     }
     if (this.selected !== NONE && !this.state.board[this.selected]) this.selected = NONE;
     this.commit(events);
+    // 마지막 체력을 쓴 순간: 납품 안내가 없으면 다음에 할 수 있는 일을 알려 줍니다.
+    if (isEnergyEmpty(this.state) && !events.some((event) => event.type === 'delivered')) {
+      this.setInfo('마지막 체력을 썼어요. 합성은 체력 없이 할 수 있고, 부품 상자를 누르면 회복 안내를 볼 수 있어요.');
+    }
+  }
+
+  // ── 체력 소진 안내 (Lab #263 A안) ──
+  // 회복 시간(다음 +1·가득 참까지)과 체력 없이 할 수 있는 일을 알려 주고, 홈으로 가거나 작업대로 돌아갈 수 있습니다.
+  // 보상형 광고 충전(#92)은 이 카드에 버튼을 더해 연결합니다.
+  private openExhaustCard() {
+    if (this.exhaustCard) return;
+    this.cancelDrag();
+    this.clearHint();
+    const top = CARD.y - CARD.h / 2;
+    const mergeable = hasMerge(this.state.board);
+    this.exhaustNext = this.add.text(CARD.x, top + 128, '', textStyle(14, INK)).setOrigin(0.5);
+    this.exhaustFull = this.add.text(CARD.x, top + 150, '', textStyle(11, MUTED, false)).setOrigin(0.5);
+    const wrapped = (y: number, message: string, color: string) => this.add.text(CARD.x, y, message, {
+      ...textStyle(11, color, false), align: 'center', wordWrap: { width: CARD.w - 44 }, lineSpacing: 2,
+    }).setOrigin(0.5, 0);
+    const card = this.add.container(0, 0, [
+      // 화면 전체를 덮는 어두운 막: 뒤쪽 보드·버튼 입력을 막습니다.
+      this.add.rectangle(195, 405, 390, 810, 0x1d1016, 0.55).setInteractive(),
+      this.add.rectangle(CARD.x, CARD.y, CARD.w, CARD.h, CREAM).setStrokeStyle(4, BORDER),
+      this.add.rectangle(CARD.x, top + 22, 108, 22, RED).setStrokeStyle(2, BORDER),
+      this.add.text(CARD.x, top + 22, 'ENERGY 0', textStyle(10, CREAM_TEXT)).setOrigin(0.5),
+      this.add.text(CARD.x, top + 52, '⚡ 알바 체력이 바닥났어요', textStyle(16, INK)).setOrigin(0.5),
+      wrapped(top + 70, '오늘 진행은 그대로 저장돼요. 체력이 차면 이어서 영업해요.', MUTED),
+      this.add.rectangle(CARD.x, top + 139, CARD.w - 40, 54, GOLD).setStrokeStyle(2, BROWN),
+      this.exhaustNext,
+      this.exhaustFull,
+      wrapped(top + 176, mergeable
+        ? '합성은 체력 없이 계속할 수 있어요. 상자 없이 3연쇄 합성하면 무료 상자를 받아요.'
+        : '지금은 합성할 쌍이 없어요. 회복을 기다리는 동안 홈에서 도감과 강화를 둘러보세요.', mergeable ? SUCCESS : MUTED),
+    ]).setDepth(60);
+    this.cardButton(card, top + 236, 280, 44, GOLD, '홈으로', () => { this.closeExhaustCard(); this.hooks.onHome(); });
+    this.cardButton(card, top + 276, 160, 28, CREAM, mergeable ? '작업대로 돌아가기' : '닫기', () => this.closeExhaustCard());
+    this.exhaustCard = card;
+    this.refreshExhaustCard();
+  }
+
+  private cardButton(card: Phaser.GameObjects.Container, y: number, width: number, height: number, fill: number, label: string, handler: () => void) {
+    const button = this.add.rectangle(CARD.x, y, width, height, fill).setStrokeStyle(3, BORDER)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => { this.hooks.onSfx?.('tap'); handler(); });
+    card.add([button, this.add.text(CARD.x, y, label, textStyle(12, INK)).setOrigin(0.5)]);
+  }
+
+  // 카드가 열려 있으면 회복 시간을 갱신하고, 상자를 열 수 있게 되면 닫습니다.
+  private refreshExhaustCard() {
+    if (!this.exhaustCard) return;
+    if (!isEnergyEmpty(this.state)) {
+      this.closeExhaustCard();
+      this.say('체력이 회복됐어요. 부품 상자를 열 수 있어요.');
+      return;
+    }
+    const now = Date.now();
+    this.exhaustNext?.setText(`다음 +1  ${clockLabel(msUntilNextEnergy(this.state, now))}`);
+    this.exhaustFull?.setText(`가득 참(${ENERGY_MAX})까지 ${formatDuration(msUntilFullEnergy(this.state, now))}`);
+  }
+
+  private closeExhaustCard() {
+    this.exhaustCard?.destroy(true);
+    this.exhaustCard = undefined;
+    this.exhaustNext = undefined;
+    this.exhaustFull = undefined;
   }
 
   private merge(from: number, to: number) {
