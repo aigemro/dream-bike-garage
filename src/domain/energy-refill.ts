@@ -25,3 +25,97 @@ export function formatDuration(ms: number): string {
   const hours = Math.floor(minutes / 60);
   return hours > 0 ? `${hours}시간 ${minutes % 60}분` : `${minutes}분`;
 }
+
+// ── 보상형 광고 체력 충전 (#92 초안 수치) ──
+// 광고 SDK는 플랫폼 어댑터(src/platform)에만 두고, 이 모듈은 '지금 광고 충전을 제안할 수 있는지'와
+// '보상 1회를 어떻게 반영하는지'만 정합니다. 횟수는 게임 Day가 아니라 기기 날짜로 셉니다.
+
+/** 광고 충전 정책. 광고를 켜고 끄는 것은 플랫폼(광고 지원 여부)이 정하고, 수치는 여기서만 바꿉니다. */
+export const REWARDED_AD_POLICY = {
+  /** 광고 1회 충전량 */
+  amount: 10,
+  /** 기기 날짜 기준 하루 횟수 */
+  perDay: 3,
+  /** 체력이 이 값 이하일 때만 제안(충전량이 최대치를 넘어 버려지지 않게) */
+  maxEnergy: ENERGY_MAX - 10,
+  /** 마지막 충전 뒤 다음 충전까지 간격 */
+  cooldownMs: 10 * 60 * 1000,
+} as const;
+
+/**
+ * 광고 충전 기록. 체력과 같은 저장 항목(release)에 두어 보상 1회가 한 번의 저장으로 함께 기록됩니다.
+ * - date: 횟수를 센 기기 날짜(YYYY-MM-DD)
+ * - lastRewardAt: 마지막 보상 시각(ms). 충전 간격 계산용
+ * - lastRequestId: 마지막으로 보상한 광고 요청 식별자. 같은 요청의 보상 이벤트가 두 번 와도 한 번만 반영
+ */
+export type AdRefillRecord = { date: string; count: number; lastRewardAt: number | null; lastRequestId: string | null };
+
+export type AdOfferBlock = 'energy-high' | 'daily-limit' | 'cooldown';
+export type AdOffer = { available: boolean; block: AdOfferBlock | null; left: number; cooldownMs: number };
+
+/** 기기 날짜(YYYY-MM-DD). 하루 횟수 초기화 기준입니다. */
+export function localDateKey(now: number): string {
+  const date = new Date(now);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * 오늘 쓴 횟수. 기록 날짜보다 오늘이 뒤일 때만 0으로 봅니다.
+ * 기기 시계를 과거로 돌려도 횟수가 초기화되지 않게 하기 위해서입니다(날짜를 앞으로 돌리는 것은 막을 수 없음).
+ */
+function countToday(record: AdRefillRecord | null, today: string): number {
+  if (!record) return 0;
+  return today > record.date ? 0 : record.count;
+}
+
+/** 다음 충전까지 남은 간격(ms). 시계가 뒤로 가도 간격 한 번보다 길게 기다리게 하지 않습니다. */
+function cooldownLeft(record: AdRefillRecord | null, now: number): number {
+  if (!record || record.lastRewardAt === null) return 0;
+  const left = record.lastRewardAt + REWARDED_AD_POLICY.cooldownMs - now;
+  return Math.min(REWARDED_AD_POLICY.cooldownMs, Math.max(0, left));
+}
+
+/** 지금 광고 충전을 제안할 수 있는지와 막힌 이유. 막힌 이유가 여러 개면 하루 횟수 → 간격 → 체력 순으로 알립니다. */
+export function adOffer(state: Pick<WorkbenchState, 'energy'>, record: AdRefillRecord | null, now: number): AdOffer {
+  const left = Math.max(0, REWARDED_AD_POLICY.perDay - countToday(record, localDateKey(now)));
+  const cooldownMs = cooldownLeft(record, now);
+  const block: AdOfferBlock | null = left <= 0 ? 'daily-limit'
+    : cooldownMs > 0 ? 'cooldown'
+      : state.energy > REWARDED_AD_POLICY.maxEnergy ? 'energy-high'
+        : null;
+  return { available: block === null, block, left, cooldownMs };
+}
+
+/**
+ * 광고 보상 1회를 반영합니다. SDK의 보상 이벤트(userEarnedReward)를 받았을 때만 부릅니다.
+ * - 같은 요청 식별자는 한 번만 반영합니다(중복 이벤트·재진입 방어).
+ * - 체력은 최대치를 넘지 않고, 가득 차면 회복 기준 시각을 지금으로 옮깁니다.
+ * - 광고를 보는 사이 조건(체력·간격)이 바뀌었어도 시청한 보상은 지급합니다. 하루 횟수만은 넘기지 않습니다.
+ * 반영했으면 새 기록, 반영하지 않았으면 null을 돌려줍니다. state는 제자리에서 바뀝니다.
+ */
+export function grantAdRefill(
+  state: Pick<WorkbenchState, 'energy' | 'energyAnchor'>,
+  record: AdRefillRecord | null,
+  requestId: string,
+  now: number,
+): AdRefillRecord | null {
+  if (!requestId || record?.lastRequestId === requestId) return null;
+  const today = localDateKey(now);
+  const used = countToday(record, today);
+  if (used >= REWARDED_AD_POLICY.perDay) return null;
+  state.energy = Math.min(ENERGY_MAX, Math.max(0, state.energy) + REWARDED_AD_POLICY.amount);
+  if (state.energy >= ENERGY_MAX) state.energyAnchor = now;
+  return { date: record && record.date > today ? record.date : today, count: used + 1, lastRewardAt: now, lastRequestId: requestId };
+}
+
+/** 저장된 광고 충전 기록을 복구합니다. 손상됐으면 기록 없음(null)으로 봅니다. */
+export function parseAdRefillRecord(value: unknown): AdRefillRecord | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Partial<AdRefillRecord>;
+  const count = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+  if (typeof record.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(record.date) || !count(record.count)) return null;
+  if (record.lastRewardAt !== null && !count(record.lastRewardAt)) return null;
+  if (record.lastRequestId !== null && typeof record.lastRequestId !== 'string') return null;
+  return { date: record.date, count: record.count, lastRewardAt: record.lastRewardAt ?? null, lastRequestId: record.lastRequestId ?? null };
+}
