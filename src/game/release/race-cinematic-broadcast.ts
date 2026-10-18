@@ -25,6 +25,28 @@ import {
   type RiderPosture,
 } from './race-rider-motion';
 import { RaceRiderTextures, RacerView, snapToCell, type RacerSpec } from './race-rider-view';
+import { drawCharacterPortrait, type PixelCharacterEmotion, type PixelCharacterRole } from './art-character-pixel';
+import {
+  FINAL_STRETCH_METERS,
+  LAST_METERS,
+  OVERTAKE_SLOWMO,
+  PHOTO_FINISH,
+  SHOT_BLEND_TAU_MS,
+  SHOT_CAMERA,
+  SHOT_LABELS,
+  blendToward,
+  broadcastShotAt,
+  climaxLevel,
+  formatMargin,
+  nearestRivalId,
+  overtakeCutInAt,
+  photoFinishRival,
+  slowMotionScale,
+  slowMotionTotalMs,
+  type BroadcastShot,
+  type ClimaxLevel,
+  type PhotoFinishRival,
+} from './race-climax';
 
 // 레이스 중계 화면(출시 적용) — 시네마틱 스포츠 중계형.
 // 결과는 race-progress.simulateRace가 먼저 확정하고, 이 씬은 타임라인을 재생만 합니다.
@@ -36,7 +58,13 @@ import { RaceRiderTextures, RacerView, snapToCell, type RacerSpec } from './race
 // - 국면별 자세: 스탠딩 스타트 → 착좌 → 오르막(상체 세움·저케이던스) → 내리막(에어로 코스팅) → 스탠딩 스프린트
 // - 바퀴: 속도에 따라 crisp/fast/blur 티어 프레임, 반사판이 회전 인지를 담당
 // - 배속 x1/x2/x4: 바퀴·지면은 그대로 빨라지고 다리는 150rpm 상한으로 읽히는 속도를 유지
-// - 완주 후 1.6초 코스팅 홀드 뒤 결과·보상 정산
+// - 국면별 자동 카메라(race-climax의 4단계 샷): 출발 직후 전체 무리(선두 기준·좁은 간격) → 선두 그룹 → 주인공과 가장 가까운 라이벌 접전(표식)
+//   → 마지막 600m. 샷이 바뀌면 카메라 기준·앵커·간격이 시상수 420ms로 미끄러지듯 바뀌고, 하단 패널에 샷 이름을 보여 줍니다.
+// - 막판 연출(race-climax 규칙, Lab E안이 스포츠 중계 문법에서 참고한 범위): 마지막 600m에 시네마 바·속도선·선두 표식을 켜고,
+//   주인공이 스퍼트에서 마지막으로 선두를 빼앗는 순간은 슬로모션 컷인으로, 결승 통과는 사진 판정(정지 → 뒤따르는 선수 슬로모션 →
+//   기록 차 표식)으로 보여 준 뒤 코스팅 홀드를 거쳐 결과·보상 정산으로 넘어갑니다. 연출은 실제 시간으로, 경기 재생은 timeScale을 곱해 흐릅니다.
+// - 결승선 카메라: 주인공이 결승선을 넘으면 카메라가 결승선에 멈추고 지면 스크롤도 멈춥니다. 주인공은 코스팅한 만큼 오른쪽으로 빠져나가고,
+//   뒤따르는 선수는 결승선으로 들어옵니다. 결승선을 넘은 선수는 각자 바퀴 속도로 결승선 너머로 굴러갑니다(pastLinePx).
 
 export type RaceCinematicHooks = {
   initialCoins?: number;
@@ -81,13 +109,16 @@ const LANE_BASE_Y = 338;
 const LANE_STEP = 5;
 const ROAD_TOP = 300;
 const ROAD_BOTTOM = 418;
-/** 진행률 1.0 차이가 화면 px로 환산되는 길이 */
-const SPREAD_PX = 3000;
-/** 상대 위치 소프트 클램프(tanh) 반경 */
+/** 상대 위치 소프트 클램프(tanh) 반경. 진행률당 px 간격은 샷마다 다릅니다(race-climax SHOT_CAMERA) */
 const SPREAD_CLAMP_PX = 180;
 const DASH_SPACING = 52;
-const FINISH_HOLD_MS = 1600;
 const COUNTDOWN_STEP_MS = 620;
+/** 상단 HUD 패널 아래 가장자리 = 중계 화면이 시작되는 y */
+const HUD_BOTTOM = 94;
+/** 막판 속도선 개수(마지막 600m는 절반, 마지막 150m는 전부) */
+const SPEED_LINE_COUNT = 18;
+/** 마지막 600m에 위·아래에서 내려오는 시네마 바 두께 */
+const LETTERBOX_PX = 12;
 /** 실시간 순위표 줄 수(상위 3명 + 나) 와 갱신 주기 */
 const BOARD_ROWS = 4;
 const BOARD_REFRESH_MS = 200;
@@ -112,6 +143,8 @@ export type BroadcastRacer = {
   motion: RiderMotionState;
   progress: number;
   lane: number;
+  /** 결승선을 넘은 뒤 자기 바퀴 속도로 굴러간 거리(px). 결승선 카메라에서 결승선 오른쪽 위치가 됩니다 */
+  pastLinePx: number;
 };
 
 function softClamp(value: number, limit: number): number {
@@ -153,11 +186,34 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
   protected playMs = 0;
   protected speedMult = 1;
   private riderTextureCache?: RaceRiderTextures;
-  private finishHoldMs = 0;
-  private finishGroundOffset?: number;
   private groundOffset = 0;
   private revsPerKm = 0;
   private currentSegmentId = '';
+
+  // 국면별 자동 카메라. 샷이 바뀌면 세 값이 목표로 미끄러지듯 이동합니다
+  private shot: BroadcastShot = 'opening';
+  /** 카메라 기준 진행률 − 주인공 진행률(선두를 따라갈 때 양수) */
+  private cameraShift = 0;
+  private cameraAnchorX = SHOT_CAMERA.opening.anchorX;
+  private cameraSpread = SHOT_CAMERA.opening.spreadPx;
+
+  // 막판 연출(race-climax). timeScale은 연출용 배속(슬로모션 0.3·정지 0)이며 사용자가 고른 speedMult와 곱해 씁니다
+  protected timeScale = 1;
+  private climax: ClimaxLevel = 0;
+  private overtakeAt?: number;
+  private overtakePlayed = false;
+  private overtakeElapsedMs?: number;
+  private photoRival?: PhotoFinishRival;
+  private photoStage: 'none' | 'freeze' | 'slow' | 'hold' = 'none';
+  private photoStageMs = 0;
+  private photoObjects: Phaser.GameObjects.GameObject[] = [];
+  private speedLines: Array<{ shape: Phaser.GameObjects.Rectangle; speed: number; sky: boolean }> = [];
+  private letterbox: Phaser.GameObjects.Rectangle[] = [];
+  // 라이벌 표식: 접전 샷에서는 가장 가까운 상대, 마지막 600m에서는 선두(주인공이 선두면 바로 뒤 추격자)
+  private rivalTag?: Phaser.GameObjects.Container;
+  private rivalTagBox?: Phaser.GameObjects.Rectangle;
+  private rivalTagPointer?: Phaser.GameObjects.Triangle;
+  private rivalTagLabel?: Phaser.GameObjects.Text;
 
   // 월드 레이어
   private hillFar?: Phaser.GameObjects.Container;
@@ -171,6 +227,7 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
   private distanceText?: Phaser.GameObjects.Text;
   private clockText?: Phaser.GameObjects.Text;
   private segmentText?: Phaser.GameObjects.Text;
+  private shotText?: Phaser.GameObjects.Text;
   private motionText?: Phaser.GameObjects.Text;
   private progressFill?: Phaser.GameObjects.Rectangle;
   private progressDots: Phaser.GameObjects.Rectangle[] = [];
@@ -233,6 +290,36 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
   /** 경기 중 매 프레임, 레이서 위치를 옮긴 뒤 */
   protected onRacingFrame(_focus: BroadcastRacer): void {}
 
+  /** 샷이 바뀔 때 띄우는 해설(opening·final은 각자 배너가 있으므로 pack·rival만). rivalName은 그 순간 가장 가까운 상대. undefined면 띄우지 않음 */
+  protected shotBanner(shot: BroadcastShot, rivalName: string): string | undefined {
+    if (shot === 'pack') return '선두 그룹이 길게 늘어섭니다';
+    if (shot === 'rival') return `${rivalName} 선수와 접전!`;
+    return undefined;
+  }
+
+  /** 마지막 600m에 들어설 때 배너. leaderName은 그 순간의 선두 이름(주인공이 선두면 주인공 이름). undefined면 띄우지 않음 */
+  protected finalStretchBanner(leaderName: string): string | undefined {
+    return `마지막 ${FINAL_STRETCH_METERS}m! 선두 ${leaderName}`;
+  }
+
+  /** 역전 컷인 문구(제목은 큰 글자라 6자 안쪽). focusName은 주인공 레이서 이름 */
+  protected overtakeCutIn(focusName: string): { title: string; subtitle: string } {
+    return { title: '선두로!', subtitle: `${focusName}, 선두로 올라섭니다!` };
+  }
+
+  /** 역전 컷인에 넣을 주인공 초상화. undefined면 글자만 */
+  protected cutInPortrait(): { role: PixelCharacterRole; emotion: PixelCharacterEmotion } | undefined {
+    return undefined;
+  }
+
+  /** 결승 통과 순간 정지 화면의 스탬프 문구 */
+  protected photoFinishLabel(): string {
+    return 'PHOTO FINISH';
+  }
+
+  /** 막판 연출 이벤트(효과음 연결용): 마지막 600m 진입 · 역전 컷인 · 사진 판정 */
+  protected onClimaxEvent(_event: 'final' | 'overtake' | 'photo-finish'): void {}
+
   // ─── 공통 유틸 ────────────────────────────────────────────────────
 
   protected get riderTextures(): RaceRiderTextures {
@@ -261,9 +348,10 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     for (let y = 0; y < HEIGHT; y += 26) this.add.rectangle(WIDTH / 2, y, WIDTH, 2, WOOD_LINE, 0.45).setDepth(depth);
   }
 
-  protected showBanner(message: string, color: number) {
-    const banner = this.add.rectangle(WIDTH / 2, 130, 270, 32, color).setStrokeStyle(3, INK).setDepth(50).setAlpha(0);
-    const label = this.text(WIDTH / 2, 130, message, 11, INK_TEXT).setOrigin(0.5).setDepth(51).setAlpha(0);
+  protected showBanner(message: string, color: number, textColor = INK_TEXT) {
+    const label = this.text(WIDTH / 2, 130, message, 11, textColor).setOrigin(0.5).setDepth(51).setAlpha(0);
+    // 긴 해설도 잘리지 않게 글자 폭에 맞춰 넓힙니다(최소 270px)
+    const banner = this.add.rectangle(WIDTH / 2, 130, Math.max(270, label.width + 28), 32, color).setStrokeStyle(3, INK).setDepth(50).setAlpha(0);
     this.tweens.add({ targets: [banner, label], alpha: 1, y: '-=6', duration: 240, ease: 'Cubic.easeOut' });
     this.time.delayedCall(1500, () => {
       this.tweens.add({ targets: [banner, label], alpha: 0, duration: 300, onComplete: () => { banner.destroy(); label.destroy(); } });
@@ -290,12 +378,27 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     this.playMs = 0;
     this.speedMult = 1;
     this.groundOffset = 0;
-    this.finishHoldMs = 0;
-    this.finishGroundOffset = undefined;
     this.currentSegmentId = '';
+    this.shot = 'opening';
+    this.cameraShift = 0;
+    this.cameraAnchorX = SHOT_CAMERA.opening.anchorX;
+    this.cameraSpread = SHOT_CAMERA.opening.spreadPx;
+    this.timeScale = 1;
+    this.climax = 0;
+    this.overtakePlayed = false;
+    this.overtakeElapsedMs = undefined;
+    this.photoStage = 'none';
+    this.photoStageMs = 0;
+    this.photoObjects = [];
+    this.speedLines = [];
+    this.letterbox = [];
+    this.rivalTag = undefined;
     // 주인공 레이서 순항이 1.8 rev/s가 되도록 rev/km를 역산하고 모든 레이서에 같은 값을 씁니다
     const focus = result.racers.find((racer) => this.isFocus(racer)) ?? result.racers[0];
     this.revsPerKm = wheelRevsPerKmForCruise(focus.speedScore, result.tickMs);
+    // 막판 연출 시점은 확정된 타임라인에서 미리 읽습니다(역전 컷인 진행률, 사진 판정 대상)
+    this.overtakeAt = overtakeCutInAt(result, focus.id);
+    this.photoRival = photoFinishRival(result, focus.id);
 
     // 화면 전환 중에 필요한 텍스처를 모두 굽습니다(라이더 시트 8장 ≈ 200ms)
     const specs = result.racers.map((racer, index) => this.racerSpec(racer, index));
@@ -303,6 +406,7 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
 
     this.buildWorld();
     this.buildRacers(specs);
+    this.buildClimaxLayer();
     this.buildHud();
     this.decorateBroadcast();
 
@@ -381,8 +485,8 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
       const motion = this.initialMotion(index);
       view.update(motion);
       view.setDepth(10 + lane * 0.1);
-      view.setPosition(this.racerX(0, 0), this.laneY(lane));
-      this.racers.push({ data: racer, view, motion, progress: 0, lane });
+      view.setPosition(this.screenX(0, 0), this.laneY(lane));
+      this.racers.push({ data: racer, view, motion, progress: 0, lane, pastLinePx: 0 });
     });
   }
 
@@ -390,8 +494,24 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     return LANE_BASE_Y + lane * LANE_STEP;
   }
 
-  protected racerX(progress: number, focusProgress: number): number {
-    return PLAYER_X + softClamp((progress - focusProgress) * SPREAD_PX, SPREAD_CLAMP_PX);
+  /** 달리는 중인 레이서의 화면 x: 카메라 기준(주인공 진행률 + 샷 시프트)에서 떨어진 진행률 × 간격을 소프트 클램프 */
+  protected screenX(progress: number, focusProgress: number): number {
+    return this.cameraAnchorX + softClamp((progress - focusProgress - this.cameraShift) * this.cameraSpread, SPREAD_CLAMP_PX);
+  }
+
+  /** 주인공 바퀴 기준 코스 전체의 월드 거리(px): 결승선 마커가 다가오는 거리 */
+  private focusWorldDistancePx(focus: BroadcastRacer): number {
+    return (this.raceMeta().distanceMeters / 1000) * this.revsPerKm * Math.PI * 2 * focus.view.wheelRadiusPx;
+  }
+
+  /** 샷 목표에 맞춰 카메라 기준·앵커·간격을 시상수로 미끄러뜨립니다 */
+  private blendCamera(focus: BroadcastRacer, delta: number) {
+    const camera = SHOT_CAMERA[this.shot];
+    const leader = camera.followLeader ? this.liveLeader() : undefined;
+    const targetShift = leader && leader !== focus ? Math.min(leader.progress, 1) - focus.progress : 0;
+    this.cameraShift = blendToward(this.cameraShift, targetShift, delta, SHOT_BLEND_TAU_MS);
+    this.cameraAnchorX = blendToward(this.cameraAnchorX, camera.anchorX, delta, SHOT_BLEND_TAU_MS);
+    this.cameraSpread = blendToward(this.cameraSpread, camera.spreadPx, delta, SHOT_BLEND_TAU_MS);
   }
 
   private buildHud() {
@@ -419,7 +539,8 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
 
     // 하단 패널: 국면·라이더 상태·배속
     this.add.rectangle(103, ROAD_BOTTOM + 66, 178, 64, CREAM).setStrokeStyle(3, WOOD_LINE).setDepth(21);
-    this.text(24, ROAD_BOTTOM + 42, '현재 국면', 10, MUTED_TEXT).setDepth(22);
+    // 패널 제목 자리에 현재 샷(국면별 카메라) 이름을 보여 줍니다
+    this.shotText = this.text(24, ROAD_BOTTOM + 42, SHOT_LABELS.opening, 10, MUTED_TEXT).setDepth(22);
     this.motionText = this.text(24, ROAD_BOTTOM + 60, '스탠딩 스타트', 11, INK_TEXT).setDepth(22);
     this.speedButton = this.add.rectangle(287, ROAD_BOTTOM + 66, 178, 64, GREEN).setStrokeStyle(3, INK).setInteractive({ useHandCursor: true }).setDepth(21);
     this.speedButton.on('pointerdown', () => this.cycleSpeed());
@@ -505,57 +626,272 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     if (this.phase !== 'racing' && this.phase !== 'finish-hold') return;
     const result = this.result;
     const distanceMeters = this.raceMeta().distanceMeters;
-    if (this.phase === 'racing') this.playMs += delta * this.speedMult;
+    // 연출(슬로모션 곡선·사진 판정 단계)은 실제 시간으로 진행하고, 경기 재생은 timeScale을 곱한 시간으로 흐릅니다
+    this.advanceSlowMotion(delta);
+    const holdDone = this.phase === 'finish-hold' && this.advancePhotoFinish(delta);
+    const scaled = delta * this.timeScale;
+    this.playMs += scaled * this.speedMult;
     const tick = this.playMs / result.tickMs;
-    const holding = this.phase === 'finish-hold';
 
     this.racers.forEach((racer) => {
-      // 홀드 중에는 타임라인을 멈추고 관성만 재생합니다
-      if (!holding) racer.progress = progressAt(racer.data.timeline, tick, racer.data.finishTimeMs / result.tickMs);
+      // 주인공이 결승선을 넘은 뒤에도 타임라인은 계속 흘러, 뒤따르는 선수가 결승선을 넘는 모습이 보입니다
+      racer.progress = progressAt(racer.data.timeline, tick, racer.data.finishTimeMs / result.tickMs);
       const finished = racer.progress >= 1;
       advanceMotion(racer.motion, {
         progress: racer.progress,
-        deltaMs: delta,
+        deltaMs: scaled,
         speedMult: this.speedMult,
         distanceMeters,
         revsPerKm: this.revsPerKm,
         posture: finished ? 'seated' : this.postureFor(racer.progress),
-        coasting: finished || holding,
+        coasting: finished,
       });
       racer.view.update(racer.motion);
+      // 결승선을 넘은 선수는 자기 바퀴 속도로 결승선 너머로 굴러갑니다
+      if (finished) racer.pastLinePx += (groundSpeedPx(racer.motion, racer.view.wheelRadiusPx) * scaled) / 1000;
     });
 
     const focus = this.focusRacer()!;
+    const focusFinished = focus.progress >= 1;
+    if (this.phase === 'racing') {
+      this.shot = broadcastShotAt(focus.progress, distanceMeters);
+      this.blendCamera(focus, delta);
+    }
+    // 결승선 화면 x: 달리는 동안은 바퀴 월드 거리로 다가오고, 주인공이 넘은 뒤에는 카메라가 결승선에 멈춥니다(결승선 카메라)
+    const lineX = focusFinished ? this.cameraAnchorX : this.cameraAnchorX + (1 - focus.progress - this.cameraShift) * this.focusWorldDistancePx(focus);
     this.racers.forEach((racer) => {
-      const x = this.racerX(racer.progress, focus.progress);
+      const x = racer.progress >= 1 ? lineX + racer.pastLinePx : this.screenX(racer.progress, focus.progress);
       racer.view.setPosition(x, this.laneY(racer.lane));
       racer.view.setVisible(x > -140 && x < WIDTH + 140);
     });
 
-    // 굴림 결합: 주인공 레이서 바퀴가 도는 만큼 지면·언덕·전경이 흐릅니다
-    const groundSpeed = groundSpeedPx(focus.motion, focus.view.wheelRadiusPx);
-    this.groundOffset += (groundSpeed * delta) / 1000;
-    this.scrollWorld(groundSpeed, focus);
+    // 굴림 결합: 주인공 바퀴가 도는 만큼 지면·언덕·전경이 흐릅니다(슬로모션·정지에서는 함께 느려지고, 결승선 카메라에서는 멈춤)
+    const groundSpeed = focusFinished ? 0 : groundSpeedPx(focus.motion, focus.view.wheelRadiusPx);
+    this.groundOffset += (groundSpeed * scaled) / 1000;
+    this.scrollWorld(groundSpeed, lineX, scaled);
 
     this.updateHud(focus, delta);
-    if (this.phase === 'racing') this.onRacingFrame(focus);
-
-    if (this.phase === 'racing' && focus.progress >= 1) {
-      this.phase = 'finish-hold';
-      this.finishGroundOffset = this.groundOffset;
-      this.finishHoldMs = FINISH_HOLD_MS;
-      this.cameras.main.flash(220, 255, 241, 198, false);
-      this.showBanner(this.finishBanner(), GOLD);
-    } else if (this.phase === 'finish-hold') {
-      this.finishHoldMs -= delta;
-      if (this.finishHoldMs <= 0) {
-        this.phase = 'after';
-        this.onBroadcastFinished();
-      }
+    if (this.phase === 'racing') {
+      this.advanceClimax(focus);
+      this.onRacingFrame(focus);
+      if (focusFinished) this.beginPhotoFinish(focus);
+    }
+    // 홀드가 끝나면 맨 마지막에 하위 씬으로 넘깁니다(하위 씬이 화면을 비우므로 이 프레임에서 레이서를 더 만지면 안 됨)
+    if (holdDone) {
+      this.phase = 'after';
+      this.timeScale = 1;
+      this.onBroadcastFinished();
     }
   }
 
-  private scrollWorld(groundSpeed: number, focus: BroadcastRacer) {
+  // ─── 막판 연출: 마지막 600m · 역전 컷인 · 사진 판정 ─────────────────────
+
+  private buildClimaxLayer() {
+    // 속도선: 하늘 7 : 도로 3 비율로 두고 평상시에는 숨깁니다(레이서 뒤, 월드 위)
+    for (let index = 0; index < SPEED_LINE_COUNT; index += 1) {
+      const sky = index % 10 < 7;
+      const shape = this.add.rectangle(snapToCell((index * 37) % WIDTH), this.speedLineY(sky), 24 + (index % 5) * 12, 2, index % 4 === 0 ? PALE_GOLD : CREAM, sky ? 0.55 : 0.35)
+        .setOrigin(0, 0.5).setDepth(8).setVisible(false);
+      this.speedLines.push({ shape, speed: 0.8 + (index % 3) * 0.35, sky });
+    }
+    // 시네마 바: 마지막 600m에 위·아래에서 내려와 승부처임을 알립니다(레이서 위, HUD 아래)
+    this.letterbox = [
+      this.add.rectangle(WIDTH / 2, HUD_BOTTOM, WIDTH, LETTERBOX_PX, INK).setOrigin(0.5, 0).setDepth(19).setScale(1, 0),
+      this.add.rectangle(WIDTH / 2, ROAD_BOTTOM, WIDTH, LETTERBOX_PX, INK).setOrigin(0.5, 1).setDepth(19).setScale(1, 0),
+    ];
+    // 라이벌 표식: 접전 샷에서는 가장 가까운 상대, 마지막 600m에서는 선두(또는 바로 뒤 추격자) 위에 '순위 이름 · 앞/뒤 거리'
+    const label = this.text(0, 0, '', 10).setOrigin(0.5);
+    const box = this.add.rectangle(0, 0, 60, 22, DARK_WOOD).setStrokeStyle(2, INK);
+    const pointer = this.add.triangle(0, 15, -6, 0, 6, 0, 0, 7, DARK_WOOD).setStrokeStyle(2, INK);
+    this.rivalTag = this.add.container(0, 0, [pointer, box, label]).setDepth(18).setVisible(false);
+    this.rivalTagBox = box;
+    this.rivalTagPointer = pointer;
+    this.rivalTagLabel = label;
+  }
+
+  private speedLineY(sky: boolean): number {
+    return snapToCell(sky ? HUD_BOTTOM + LETTERBOX_PX + 4 + Math.random() * (ROAD_TOP - HUD_BOTTOM - LETTERBOX_PX - 12) : ROAD_TOP + 6 + Math.random() * (ROAD_BOTTOM - ROAD_TOP - LETTERBOX_PX - 12));
+  }
+
+  /** 역전 컷인 슬로모션 곡선을 실제 시간으로 진행합니다 */
+  private advanceSlowMotion(delta: number) {
+    if (this.overtakeElapsedMs === undefined) return;
+    this.overtakeElapsedMs += delta;
+    if (this.overtakeElapsedMs >= slowMotionTotalMs(OVERTAKE_SLOWMO)) {
+      this.overtakeElapsedMs = undefined;
+      this.timeScale = 1;
+      return;
+    }
+    this.timeScale = slowMotionScale(this.overtakeElapsedMs, OVERTAKE_SLOWMO);
+  }
+
+  private advanceClimax(focus: BroadcastRacer) {
+    // 샷 전환: pack·rival은 해설만(rival은 짧은 플래시), final은 enterFinalStretch가 맡습니다
+    const shotLabel = this.shotText?.text;
+    if (shotLabel !== undefined && shotLabel !== SHOT_LABELS[this.shot]) {
+      this.shotText?.setText(SHOT_LABELS[this.shot]);
+      if (this.shot === 'pack' || this.shot === 'rival') {
+        const rival = this.nearestRival(focus);
+        const banner = this.shotBanner(this.shot, rival?.data.name ?? '');
+        if (banner) this.showBanner(banner, PALE_GOLD);
+        if (this.shot === 'rival') this.cameras.main.flash(100, 255, 241, 198, false);
+      }
+    }
+    const level = climaxLevel(focus.progress, this.raceMeta().distanceMeters);
+    if (level > this.climax) {
+      if (this.climax === 0) this.enterFinalStretch(focus);
+      if (level === 2) this.enterLastMeters();
+      this.climax = level;
+    }
+    this.updateRivalTag(focus);
+    if (this.overtakeAt !== undefined && !this.overtakePlayed && focus.progress >= this.overtakeAt) this.playOvertakeCutIn(focus);
+  }
+
+  /** 주인공과 진행률이 가장 가까운 상대 */
+  private nearestRival(focus: BroadcastRacer): BroadcastRacer | undefined {
+    const id = nearestRivalId(this.racers.map((racer) => ({ id: racer.data.id, progress: racer.progress })), focus.data.id);
+    return this.racers.find((racer) => racer.data.id === id);
+  }
+
+  private enterFinalStretch(focus: BroadcastRacer) {
+    const leader = this.liveLeader() ?? focus;
+    const banner = this.finalStretchBanner(leader.data.name);
+    if (banner) this.showBanner(banner, RED, CREAM_TEXT);
+    this.cameras.main.flash(120, 255, 241, 198, false);
+    this.cameras.main.shake(220, 0.005);
+    this.segmentText?.setText(`FINAL ${FINAL_STRETCH_METERS}m`).setBackgroundColor('#c95746').setColor(CREAM_TEXT);
+    this.letterbox.forEach((bar) => this.tweens.add({ targets: bar, scaleY: 1, duration: 360, ease: 'Cubic.easeOut' }));
+    this.onClimaxEvent('final');
+  }
+
+  private enterLastMeters() {
+    this.segmentText?.setText(`LAST ${LAST_METERS}m`);
+    // 남은 거리 글자를 금색으로 바꾸고 맥박처럼 커졌다 작아지게 합니다
+    if (this.distanceText) {
+      this.distanceText.setColor('#f4b84a');
+      this.tweens.add({ targets: this.distanceText, scale: { from: 1, to: 1.12 }, duration: 260, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    }
+    this.cameras.main.shake(160, 0.004);
+  }
+
+  /** 접전 샷: 가장 가까운 상대 / 마지막 600m: 선두(주인공이 선두면 바로 뒤 추격자) 위에 '순위 이름 · 앞/뒤 거리' */
+  private updateRivalTag(focus: BroadcastRacer) {
+    if (!this.rivalTag || !this.rivalTagBox || !this.rivalTagPointer || !this.rivalTagLabel) return;
+    let target: BroadcastRacer | undefined;
+    if (this.shot === 'final') {
+      const leader = this.liveLeader();
+      target = leader && leader !== focus ? leader : this.nearestRival(focus);
+    } else if (this.shot === 'rival') {
+      target = this.nearestRival(focus);
+    }
+    const x = target?.view.container.x ?? -999;
+    if (!target || x < -40 || x > WIDTH + 40 || (target.progress >= 1 && focus.progress < 1)) {
+      this.rivalTag.setVisible(false);
+      return;
+    }
+    const ahead = target.progress >= focus.progress;
+    const gap = Math.round(Math.abs(target.progress - focus.progress) * this.raceMeta().distanceMeters);
+    const color = this.shot === 'final' ? RED : DARK_WOOD;
+    this.rivalTagLabel.setText(`${this.liveRankOf(target)}위 ${target.data.name} · ${ahead ? '앞' : '뒤'} ${gap}m`);
+    this.rivalTagBox.setSize(this.rivalTagLabel.width + 16, 22).setFillStyle(color);
+    this.rivalTagPointer.setFillStyle(color);
+    this.rivalTag.setVisible(true);
+    this.rivalTag.setPosition(Phaser.Math.Clamp(x, 70, WIDTH - 70), this.laneY(target.lane) - 104);
+  }
+
+  /** 역전 컷인: 슬로모션과 함께 오른쪽에서 밀려 들어오는 슬랩(제목·해설·주인공 초상화) */
+  private playOvertakeCutIn(focus: BroadcastRacer) {
+    this.overtakePlayed = true;
+    this.overtakeElapsedMs = 0;
+    this.timeScale = OVERTAKE_SLOWMO.scale;
+    this.cameras.main.flash(100, 255, 241, 198, false);
+    this.cameras.main.shake(260, 0.006);
+    this.onClimaxEvent('overtake');
+
+    const copy = this.overtakeCutIn(focus.data.name);
+    const cutIn = this.add.container(WIDTH + 260, 196).setDepth(52);
+    cutIn.add(this.add.rectangle(0, 0, 440, 92, PALE_GOLD, 0.97).setStrokeStyle(4, INK).setAngle(-4));
+    cutIn.add(this.add.rectangle(-150, 0, 46, 92, RED).setStrokeStyle(4, INK).setAngle(-4));
+    const portrait = this.cutInPortrait();
+    let textX = 20;
+    if (portrait) {
+      cutIn.add(this.add.rectangle(-96, 0, 60, 66, CREAM).setStrokeStyle(3, INK));
+      cutIn.add(drawCharacterPortrait(this, -96, 0, portrait.role, portrait.emotion, 2, 0));
+      textX = 40;
+    }
+    cutIn.add(this.text(textX, -22, copy.title, 26, INK_TEXT).setOrigin(0.5).setStroke(CREAM_TEXT, 4));
+    cutIn.add(this.text(textX, 20, copy.subtitle, 11, MUTED_TEXT).setOrigin(0.5));
+    const total = slowMotionTotalMs(OVERTAKE_SLOWMO);
+    this.tweens.add({ targets: cutIn, x: WIDTH / 2 + 8, duration: 170, ease: 'Back.easeOut', hold: Math.max(0, total - 340), yoyo: true, onComplete: () => cutIn.destroy(true) });
+  }
+
+  /** 결승 통과: 플래시와 함께 화면을 멈추고 셔터 프레임·스탬프를 띄웁니다. 이후 단계는 advancePhotoFinish가 진행 */
+  private beginPhotoFinish(focus: BroadcastRacer) {
+    this.phase = 'finish-hold';
+    this.overtakeElapsedMs = undefined;
+    this.photoStage = 'freeze';
+    this.photoStageMs = 0;
+    this.timeScale = 0;
+    this.rivalTag?.setVisible(false);
+    // 결승선 카메라는 멈춰 있으므로 속도선도 거둡니다
+    this.speedLines.forEach((line) => line.shape.setVisible(false));
+    this.cameras.main.flash(180, 255, 255, 255, false);
+    this.cameras.main.shake(160, 0.005);
+    this.onClimaxEvent('photo-finish');
+
+    const viewTop = HUD_BOTTOM + LETTERBOX_PX;
+    const viewBottom = ROAD_BOTTOM - LETTERBOX_PX;
+    const frame = this.add.rectangle(WIDTH / 2, (viewTop + viewBottom) / 2, WIDTH - 16, viewBottom - viewTop - 8).setStrokeStyle(6, CREAM).setDepth(53);
+    const stamp = this.text(WIDTH / 2, 168, this.photoFinishLabel(), 26).setOrigin(0.5).setStroke(INK_TEXT, 7).setDepth(54).setScale(1.6).setAlpha(0);
+    const chip = this.add.rectangle(WIDTH / 2, 206, 0, 24, RED).setStrokeStyle(2, INK).setDepth(54).setAlpha(0);
+    const chipLabel = this.text(WIDTH / 2, 206, `${focus.data.rank}위 · ${this.racerLabel(focus.data)}`, 11).setOrigin(0.5).setDepth(55).setAlpha(0);
+    chip.setSize(chipLabel.width + 20, 24);
+    this.tweens.add({ targets: stamp, scale: 1, alpha: 1, duration: 180, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: [chip, chipLabel], alpha: 1, duration: 160, delay: 120 });
+    this.photoObjects = [frame, stamp, chip, chipLabel];
+  }
+
+  /** 사진 판정 단계를 진행합니다. 홀드까지 끝나면 true(호출한 쪽이 프레임 끝에서 하위 씬으로 넘김) */
+  private advancePhotoFinish(delta: number): boolean {
+    this.photoStageMs += delta;
+    if (this.photoStage === 'freeze') {
+      if (this.photoStageMs < PHOTO_FINISH.freezeMs) return false;
+      const objects = this.photoObjects;
+      this.photoObjects = [];
+      this.tweens.add({ targets: objects, alpha: 0, duration: 200, onComplete: () => objects.forEach((object) => object.destroy()) });
+      this.showBanner(this.finishBanner(), GOLD);
+      // 바로 뒤에 들어오는 선수가 있으면 느리게 재생해 결승선을 넘는 모습과 기록 차를 보여 줍니다
+      this.photoStage = this.photoRival ? 'slow' : 'hold';
+      this.photoStageMs = 0;
+      this.timeScale = this.photoRival ? PHOTO_FINISH.slowScale : 1;
+      return false;
+    }
+    if (this.photoStage === 'slow') {
+      const rival = this.racers.find((racer) => racer.data.id === this.photoRival?.racer.id);
+      const crossed = !rival || rival.progress >= 1;
+      if (!crossed && this.photoStageMs < PHOTO_FINISH.slowMaxMs) return false;
+      if (rival && crossed && this.photoRival) this.showMarginTag(rival, this.photoRival.marginMs);
+      this.photoStage = 'hold';
+      this.photoStageMs = 0;
+      this.tweens.add({ targets: this, timeScale: 1, duration: 300, ease: 'Sine.easeOut' });
+      return false;
+    }
+    if (this.photoStageMs < PHOTO_FINISH.holdMs) return false;
+    this.photoStage = 'none';
+    return true;
+  }
+
+  /** 뒤따라 들어온 선수 머리 위에 '2위 이름 +0.3초' 표식(선수와 함께 움직이도록 레이서 컨테이너에 넣음) */
+  private showMarginTag(rival: BroadcastRacer, marginMs: number) {
+    const label = this.text(0, 0, `${rival.data.rank}위 ${rival.data.name} ${formatMargin(marginMs)}`, 11).setOrigin(0.5);
+    const box = this.add.rectangle(0, 0, label.width + 16, 22, RED).setStrokeStyle(2, INK);
+    const pointer = this.add.triangle(0, 15, -6, 0, 6, 0, 0, 7, RED).setStrokeStyle(2, INK);
+    const tag = this.add.container(0, -98, [pointer, box, label]).setAlpha(0);
+    rival.view.container.add(tag);
+    this.tweens.add({ targets: tag, alpha: 1, y: -104, duration: 200, ease: 'Cubic.easeOut' });
+  }
+
+  private scrollWorld(groundSpeed: number, lineX: number, scaledDelta: number) {
     const offset = this.groundOffset;
     if (this.hillFar) this.hillFar.x = -((offset * 0.25) % 160);
     if (this.hillNear) this.hillNear.x = -((offset * 0.5) % 150);
@@ -573,12 +909,28 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
       const x = (((index * 30 - offset * 1.4) % grassSpan) + grassSpan) % grassSpan - 30;
       tuft.setX(snapToCell(x));
     });
+    // 속도선: 마지막 600m(9개 → 마지막 150m 18개)과 배속 x2(+4)·x4(+9)에서 지면보다 빠르게 왼쪽으로 흘러 속도감을 보강합니다.
+    // 왼쪽으로 나가면 오른쪽에서 다시 나옵니다. 결승선 카메라(홀드)에서는 모두 거둡니다
+    if (this.phase === 'racing') {
+      const byClimax = this.climax === 2 ? SPEED_LINE_COUNT : this.climax === 1 ? SPEED_LINE_COUNT / 2 : 0;
+      const bySpeed = this.speedMult === 4 ? 9 : this.speedMult === 2 ? 4 : 0;
+      const active = Math.min(SPEED_LINE_COUNT, byClimax + bySpeed);
+      const base = 260 + groundSpeed * 1.6;
+      this.speedLines.forEach((line, index) => {
+        line.shape.setVisible(index < active);
+        if (index >= active) return;
+        let x = line.shape.x - (base * line.speed * scaledDelta) / 1000;
+        if (x + line.shape.width < -8) {
+          x = WIDTH + 20 + Math.random() * 140;
+          line.shape.setY(this.speedLineY(line.sky));
+          line.shape.setSize(24 + Math.floor(Math.random() * 5) * 12, 2);
+        }
+        line.shape.setX(snapToCell(x));
+      });
+    }
     if (this.finishMarker) {
-      const focusWorldDistance = this.raceMeta().distanceMeters / 1000 * this.revsPerKm * Math.PI * 2 * focus.view.wheelRadiusPx;
-      const x = PLAYER_X + (1 - focus.progress) * focusWorldDistance
-        - (this.finishGroundOffset === undefined ? 0 : this.groundOffset - this.finishGroundOffset);
-      this.finishMarker.setVisible(x < WIDTH + 60);
-      this.finishMarker.setX(snapToCell(x));
+      this.finishMarker.setVisible(lineX < WIDTH + 60);
+      this.finishMarker.setX(snapToCell(lineX));
     }
   }
 
@@ -650,6 +1002,21 @@ export class RaceCinematicScene extends RaceBroadcastScene {
 
   protected hudBadge(): string {
     return `DAY ${this.dayNumber()}`;
+  }
+
+  protected finalStretchBanner(leaderName: string): string {
+    const leader = this.focusRacer();
+    return leader && leader.data.name === leaderName
+      ? `마지막 ${FINAL_STRETCH_METERS}m! 선두를 지켜라!`
+      : `마지막 ${FINAL_STRETCH_METERS}m! 선두 ${leaderName} 추격!`;
+  }
+
+  protected overtakeCutIn(): { title: string; subtitle: string } {
+    return { title: '선두로!', subtitle: `${this.playerBike().name}, 선두로 올라섭니다!` };
+  }
+
+  protected cutInPortrait() {
+    return { role: '정비사' as const, emotion: '기본' as const };
   }
 
   protected onBroadcastFinished(): void {

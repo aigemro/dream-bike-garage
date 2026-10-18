@@ -116,11 +116,9 @@ export class PrologueScene extends RaceBroadcastScene {
   // 거실 TV 속 삼촌(페달링만 반복)
   private tvRider?: { view: RacerView; motion: RiderMotionState };
   private tvDashes: Phaser.GameObjects.Rectangle[] = [];
-  // 레이스 중계 연출
+  // 레이스 중계 연출(역전 컷인·사진 판정 시점은 RaceBroadcastScene이 race-climax 규칙으로 타임라인에서 읽음)
   private storyRace?: RaceResult;
   private climbLeaderName = '';
-  private leadTakenAt = 1;
-  private leadAnnounced = false;
   private uncleTag?: Phaser.GameObjects.Container;
 
   constructor(private readonly hooks: PrologueHooks = {}) {
@@ -131,13 +129,17 @@ export class PrologueScene extends RaceBroadcastScene {
     this.storyRace = buildPrologueRace();
     const check = checkPrologueStory(this.storyRace);
     this.climbLeaderName = proRiderById(check.climbLeaderId)?.name ?? '';
-    this.leadTakenAt = check.leadTakenAt;
     this.showLivingRoom('before');
   }
 
   update(time: number, delta: number) {
     super.update(time, delta);
     this.animateTv(delta);
+    // 결승선 카메라(홀드)에서는 삼촌이 오른쪽으로 빠져나가므로 이름표도 따라갑니다
+    if (this.phase === 'finish-hold') {
+      const focus = this.focusRacer();
+      if (focus) this.placeUncleTag(focus);
+    }
   }
 
   // ─── 중계 표시 규칙 (RaceBroadcastScene) ─────────────────────────────
@@ -186,6 +188,29 @@ export class PrologueScene extends RaceBroadcastScene {
     return PROLOGUE_COMMENTARY.finish;
   }
 
+  // 마지막 600m: 그 순간의 선두(대본상 루카) 이름을 넣어 추격 상황을 해설합니다
+  protected finalStretchBanner(leaderName: string): string {
+    return commentaryLine(PROLOGUE_COMMENTARY.final, leaderName);
+  }
+
+  // 역전 컷인: 대본상 결승 300m 안쪽에서 삼촌이 선두로 올라서는 순간
+  protected overtakeCutIn(): { title: string; subtitle: string } {
+    return { title: PROLOGUE_COMMENTARY.takeLeadTitle, subtitle: PROLOGUE_COMMENTARY.takeLead };
+  }
+
+  protected cutInPortrait() {
+    return { role: '삼촌' as const, emotion: '기본' as const };
+  }
+
+  protected photoFinishLabel(): string {
+    return PROLOGUE_COMMENTARY.photoFinish;
+  }
+
+  protected onClimaxEvent(event: 'final' | 'overtake' | 'photo-finish'): void {
+    if (event === 'overtake') this.hooks.onSfx?.('start');
+    if (event === 'photo-finish') this.hooks.onSfx?.('complete');
+  }
+
   protected distanceLabel(meters: number, totalMeters: number): string {
     return `결승까지 ${(totalMeters - meters).toLocaleString()}m`;
   }
@@ -214,11 +239,6 @@ export class PrologueScene extends RaceBroadcastScene {
 
   protected onRacingFrame(focus: BroadcastRacer): void {
     this.placeUncleTag(focus);
-    // 대본상 마지막 역전 시점에 맞춰 해설을 띄웁니다(중간에 잠깐 앞서는 순간에는 띄우지 않음)
-    if (!this.leadAnnounced && focus.progress >= this.leadTakenAt) {
-      this.leadAnnounced = true;
-      this.showBanner(PROLOGUE_COMMENTARY.takeLead, GOLD);
-    }
   }
 
   protected onBroadcastFinished(): void {
@@ -226,10 +246,18 @@ export class PrologueScene extends RaceBroadcastScene {
   }
 
   private placeUncleTag(focus: BroadcastRacer) {
-    // 이름표 기준 y는 트윈이 위아래로 흔드는 값과 별개로, 레인 위치에서 한 번만 정합니다.
-    if (!this.uncleTag || this.uncleTag.getData('placed')) return;
+    if (!this.uncleTag) return;
+    // x는 국면별 카메라(전체 무리 샷에서는 삼촌이 화면 왼쪽으로 밀림)를 따라 매 프레임 맞추고,
+    // y는 트윈이 위아래로 흔드는 값과 별개로 레인 위치에서 한 번만 정합니다.
+    this.uncleTag.setX(focus.view.container.x);
+    if (this.uncleTag.getData('placed')) return;
     this.uncleTag.setY(this.laneY(focus.lane) - 104);
     this.uncleTag.setData('placed', true);
+  }
+
+  // 프롤로그는 구간 해설(오르막·내리막·스퍼트)이 이미 있어 샷 전환 해설은 띄우지 않습니다(라이벌 표식·샷 이름만)
+  protected shotBanner(): string | undefined {
+    return undefined;
   }
 
   // ─── 거실 (TV 앞) ─────────────────────────────────────────────────

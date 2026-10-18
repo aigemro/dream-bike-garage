@@ -23,7 +23,8 @@
 | [`race-rider-motion.ts`](../../src/game/release/race-rider-motion.ts) | race-progress | 바퀴·크랭크 각속도, 자세 선택, 티어, 위상 양자화, 2-본 IK, 베이크 오프셋 |
 | [`race-rider-sprite.ts`](../../src/game/release/race-rider-sprite.ts) | 위 셋 | 자세×위상별 far/near 레이어 그리드, 바퀴 회전 프레임, RGBA 시트 베이크 |
 | [`race-rider-view.ts`](../../src/game/release/race-rider-view.ts) | Phaser | 캔버스 텍스처 등록, 레이서 컨테이너(이미지 6장), `update(state)` |
-| [`race-cinematic-broadcast.ts`](../../src/game/release/race-cinematic-broadcast.ts) | 위 전부 | `RaceBroadcastScene`(중계 공통: 월드·레이서·HUD·순위표·재생 루프·완주 홀드)과 `RaceCinematicScene`(대회일: 참가 → 카운트다운 → 중계 → 결과) |
+| [`race-climax.ts`](../../src/game/release/race-climax.ts) | race-progress | 막판 연출 규칙: 마지막 600m/150m 강도, 슬로모션 곡선, 역전 컷인 진행률(`overtakeCutInAt`), 사진 판정 대상(`photoFinishRival`) |
+| [`race-cinematic-broadcast.ts`](../../src/game/release/race-cinematic-broadcast.ts) | 위 전부 | `RaceBroadcastScene`(중계 공통: 월드·레이서·HUD·순위표·재생 루프·막판 연출·사진 판정 홀드)과 `RaceCinematicScene`(대회일: 참가 → 카운트다운 → 중계 → 결과) |
 | [`prologue-design.ts`](../../src/game/release/prologue-design.ts) | 위 전부 + [`prologue-story.ts`](../../src/game/release/prologue-story.ts) | 첫 시작 프롤로그: 삼촌의 프로 대회 중계([PROLOGUE.md](../game-design/PROLOGUE.md)) |
 
 `bike-pixel-sprite.ts`·`art-character-pixel.ts`는 `import type Phaser`로 바꿔 node(Vitest)에서도 로딩됩니다. [`tests/race-rider-purity.test.ts`](../../tests/race-rider-purity.test.ts)가 순수 모듈에 Phaser 값 import가 없음을 강제합니다.
@@ -86,11 +87,13 @@
 
 ## 9. 씬 연출
 
-- 고정 레인 8개(순위 무관, 플레이어는 최근경), 깊이는 레인 순. 상대 위치는 진행률 차 × 3,000px에 ±180px tanh 소프트 클램프.
+- 고정 레인 8개(순위 무관, 플레이어는 최근경), 깊이는 레인 순. 상대 위치는 카메라 기준 진행률 차 × 샷별 간격에 ±180px tanh 소프트 클램프.
+- 국면별 자동 카메라(`race-climax.ts`의 `SHOT_CAMERA`, Lab E안 4단계 샷): `OPENING`(0~12%, 선두 기준·앵커 x 236·간격 1,400px) → `PACK CAM`(12~58%, 선두 기준·간격 2,000px) → `RIVAL FOCUS`(58%~마지막 600m, 주인공 기준·앵커 x 150·간격 3,000px, 가장 가까운 상대 위에 `n위 이름 · 앞/뒤 nm` 표식) → `FINAL 600m`. 샷 전환은 카메라 시프트·앵커·간격을 시상수 420ms로 보간하고, 하단 패널 제목에 샷 이름을 보여 줍니다. 픽셀 스프라이트는 정수 배율을 유지하므로 Lab처럼 레이서를 축소하지는 않습니다. 지면 스크롤은 샷과 무관하게 주인공 바퀴 속도를 따릅니다.
 - 카운트다운(3·2·1·GO) 뒤 스탠딩 스타트, 국면 배너, 하단 패널에 현재 자세·rpm·바퀴 티어 표시.
-- 완주 후 1.6초 코스팅 홀드(크랭크 수평 정지, 바퀴 감속) 뒤 결과·보상 정산. `onSettled` 훅은 기존과 같습니다.
+- 막판 연출(`race-climax.ts`, Lab E안이 스포츠 중계 문법에서 참고한 범위를 메인 규칙으로 재구현): 마지막 600m에 시네마 바(위·아래 12px)·속도선(9개 → 마지막 150m 18개)·주인공이 아닌 선두 위 `1위 이름 · +거리` 표식을 켭니다. 주인공이 우승하고 스퍼트 구간에서 마지막으로 선두를 빼앗으면 그 진행률에서 슬로모션(0.3배속, 총 1.27초) 컷인 슬랩을 띄웁니다. 연출은 실제 시간으로 흐르고 경기 재생은 `timeScale`을 곱한 시간으로 흘러, 바퀴·지면·속도선이 함께 느려집니다.
+- 결승 통과는 사진 판정으로: 흰 플래시 뒤 0.6초 정지(셔터 프레임·`PHOTO FINISH` 스탬프·순위 칩), 1.5초 안에 뒤따르는 선수가 있으면 0.3배속으로 그 선수가 결승선을 넘는 모습과 `n위 이름 +0.3초` 표식을 보여 준 뒤 1배속으로 돌아와 1.4초 코스팅 홀드(크랭크 수평 정지, 바퀴 감속) 후 결과·보상 정산. 주인공이 결승선을 넘으면 **결승선 카메라**로 바뀌어 카메라·지면이 결승선에 멈추고, 결승선을 넘은 선수는 각자 바퀴 속도로 결승선 너머로 굴러갑니다(`pastLinePx`). 먼저 완주한 선수가 결승선에 서서 기다리는 것처럼 보이던 예전 모습도 이 규칙으로 사라집니다. `onSettled` 훅은 기존과 같습니다.
 - 중계 공통 부분은 `RaceBroadcastScene`이 맡고, 하위 씬은 카메라가 따라갈 레이서(`isFocus`)·레이서 외형(`racerSpec`)·이름(`racerLabel`)·좌상단 배지·구간 해설·남은 거리 표기·카운트다운 유무와 앞뒤 장면만 정합니다.
-- 프롤로그는 결승 3km 지점부터 이미 달리는 장면이라 카운트다운·스탠딩 스타트 없이 순항 상태(바퀴 1.8 rev/s, 85rpm)로 시작하고, 삼촌 머리 위에 이름표를 띄웁니다.
+- 프롤로그는 결승 3km 지점부터 이미 달리는 장면이라 카운트다운·스탠딩 스타트 없이 순항 상태(바퀴 1.8 rev/s, 85rpm)로 시작하고, 삼촌 머리 위에 이름표를 띄웁니다. 막판 연출의 문구·초상화·효과음은 하위 씬 훅(`finalStretchBanner`·`overtakeCutIn`·`cutInPortrait`·`photoFinishLabel`·`onClimaxEvent`)으로만 바꿉니다([PROLOGUE.md](../game-design/PROLOGUE.md) 4.1절).
 - 레이서 역할은 캐릭터 역할(정비사·점장·고객·삼촌)에 레이스 전용 `선수`를 더한 `RiderRole`입니다. `선수`는 `teamColor`로 저지·헬멧을 팀 색으로 칠하고(`riderPaletteFor`), 삼촌·선수는 빕 숏 차림이라 정강이를 피부색으로 그립니다(`shin`). 텍스처 캐시 키에 팀 색이 들어갑니다.
 
 ## 10. 테스트
@@ -100,7 +103,8 @@
 | `tests/race-progress.test.ts` | 시드 결정성, 타임라인 단조성, 등수·기록 일치, 보상 |
 | `tests/race-rider-motion.test.ts` | 순항 회전수 역산, 비대칭 τ, 굴림 결합, 실제 타임라인 재생 시 티어, 케이던스·코스팅·상한, 상사점 자세 전환, IK, 베이크 오프셋 |
 | `tests/race-rider-sprite.test.ts` | 전 카테고리×자세×위상 다리·팔 도달(신장 0), 손=그립, 신발=페달 위, far 무잉크, 허벅지가 몸통 아래, 머리 맵 12×12(삼촌·선수 포함), 시트 192프레임·결정성, 팀 색·맨다리, 바퀴 45° 대칭·반사판 고유성 |
-| `tests/prologue-story.test.ts` | 프롤로그 대본 경기 선택의 결정성, 삼촌 우승·역전 조건, 타임라인 형식, 팀 색 팔레트, 대사 길이, 삼촌 픽셀 지도 |
+| `tests/race-climax.test.ts` | 연출 강도 경계(600m/150m), 슬로모션 곡선, 선두 교체 시점, 역전 컷인 조건(우승·스퍼트 구간·99.5% 전), 사진 판정 대상·기록 차 표기, 프롤로그·대회일 결과와의 연결 |
+| `tests/prologue-story.test.ts` | 프롤로그 대본 경기 선택의 결정성, 삼촌 우승·마지막 600m 추격·결승 300m 안쪽 역전·사진 판정급 격차 조건, 타임라인 형식, 팀 색 팔레트, 대사·해설 길이, 삼촌 픽셀 지도 |
 | `tests/bike-pixel-sprite.test.ts` | 리그 손 위치가 실제 핸들바 픽셀 위, 부품 분리 그리드 차집합, 캐시 키 |
 | `tests/race-rider-purity.test.ts` | 순수 모듈의 Phaser 값 import 금지 |
 
@@ -119,6 +123,6 @@ Claude 세션 한도로 검증이 중단된 리뷰 항목을 코드·실행으�
 
 ## 12. 개발용 미리보기
 
-`npm ci` 후 `npm run dev`를 실행하고 `/dream-bike-garage/dev/race.html`을 엽니다. `?seed=0&coins=0`으로 시드·잔액 경계도 확인할 수 있습니다. 보상 버튼은 미리보기 하단에 정산 결과를 표시합니다.
+`npm ci` 후 `npm run dev`를 실행하고 `/dream-bike-garage/dev/race.html`을 엽니다. `?seed=0&coins=0`으로 시드·잔액 경계도 확인할 수 있습니다. 보상 버튼은 미리보기 하단에 정산 결과를 표시합니다. 프롤로그(삼촌의 결승 레이스)는 `/dream-bike-garage/dev/prologue.html`에서 저장·홈과 연결하지 않고 바로 볼 수 있습니다.
 
 현재 출시 홈은 이 독립 레이스 모듈을 호출하지 않습니다(PR #65의 통합 경계 유지). Day 개최 조건·홈 진입 버튼·계정 저장 연결은 이번 모션 개선의 범위 밖입니다. 개발용 진입점은 기본 프로덕션 빌드에 포함되지 않습니다.

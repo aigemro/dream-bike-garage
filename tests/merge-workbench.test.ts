@@ -20,7 +20,9 @@ import {
   parseWorkbench,
   placePickBox,
   recoverEnergy,
+  NEEDED_PART_RATE,
   rollPart,
+  settleWorkbench,
   supplyBlock,
   undoLast,
   type WorkbenchOrder,
@@ -218,6 +220,12 @@ describe('부품 상자', () => {
     expect(openPartBox(state, ORDERS, NOW)).toBeNull();
   });
 
+  it(`상자는 ${NEEDED_PART_RATE * 100}% 확률로 아직 장착하지 않은 부품 종류를 우선 낸다`, () => {
+    const installed = { frame: true, wheel: true, drivetrain: true, handlebar: false };
+    expect(rollPart(installed, 0, sequence(NEEDED_PART_RATE - 0.01, 0, 0.5)).part.type).toBe('handlebar');
+    expect(rollPart(installed, 0, sequence(NEEDED_PART_RATE, 0, 0.5)).part.type).toBe('frame');
+  });
+
   it('미장착 부품이 4번 연속 안 나오면 다음 상자에서 보장한다', () => {
     const installed = { frame: true, wheel: true, drivetrain: true, handlebar: false };
     expect(rollPart(installed, 0, sequence(0.9, 0.3, 0.5))).toMatchObject({ part: { type: 'wheel', level: 1 }, misses: 1 });
@@ -318,26 +326,47 @@ describe('저장·복구', () => {
 });
 
 describe('한 행동 납품 1건', () => {
-  it('이월 부품으로 다음 주문까지 완성돼도 납품은 다음 행동의 첫 정리에서 확정한다', () => {
-    const EASY: WorkbenchOrder[] = [
-      { levels: { frame: 2, wheel: 1, drivetrain: 1, handlebar: 1 }, reward: 100 },
-      { levels: { frame: 1, wheel: 1, drivetrain: 1, handlebar: 1 }, reward: 200 },
-    ];
+  const EASY: WorkbenchOrder[] = [
+    { levels: { frame: 2, wheel: 1, drivetrain: 1, handlebar: 1 }, reward: 100 },
+    { levels: { frame: 1, wheel: 1, drivetrain: 1, handlebar: 1 }, reward: 200 },
+  ];
+  // 합성할 프레임 Lv.1 2개 + 다음 주문을 바로 채우는 Lv.1 4종
+  const readyForCarryOver = () => {
     const state = createWorkbench(EASY, NOW);
     clearBoard(state);
     state.installed = { frame: false, wheel: true, drivetrain: true, handlebar: true };
-    // 합성할 프레임 Lv.1 2개 + 다음 주문을 바로 채우는 Lv.1 4종
     state.board[0] = { type: 'frame', level: 1 };
     state.board[1] = { type: 'frame', level: 1 };
     state.board[12] = { type: 'frame', level: 1 };
     state.board[13] = { type: 'wheel', level: 1 };
     state.board[14] = { type: 'drivetrain', level: 1 };
     state.board[15] = { type: 'handlebar', level: 1 };
+    return state;
+  };
+
+  it('납품한 행동은 거기서 멈추고, 남은 부품은 다음 주문에 미리 장착하지 않는다', () => {
+    const state = readyForCarryOver();
     const events = mergeParts(state, EASY, 0, 1)!;
     expect(events.filter((event) => event.type === 'delivered')).toEqual([{ type: 'delivered', order: 0, orderIndex: 0, reward: 100 }]);
-    // 다음 주문은 장착까지만 되고 납품은 보류된다
+    expect(events.at(-1)?.type).toBe('delivered');
     expect(state.order).toBe(1);
-    expect(state.installed).toEqual({ frame: true, wheel: true, drivetrain: true, handlebar: true });
+    expect(state.installed).toEqual({ frame: false, wheel: false, drivetrain: false, handlebar: false });
+    expect([12, 13, 14, 15].every((index) => state.board[index])).toBe(true);
+  });
+
+  it('납품 연출 뒤 settleWorkbench로 남은 부품을 장착하고, 4종이 차면 그 주문을 납품한다', () => {
+    const state = readyForCarryOver();
+    mergeParts(state, EASY, 0, 1);
+    const next = settleWorkbench(state, EASY);
+    expect(next.filter((event) => event.type === 'installed').map((event) => event.type === 'installed' && event.order)).toEqual([1, 1, 1, 1]);
+    expect(next.at(-1)).toEqual({ type: 'delivered', order: 1, orderIndex: 1, reward: 200 });
+    expect(state.order).toBe(2);
+    expect(settleWorkbench(state, EASY)).toEqual([]);
+  });
+
+  it('settleWorkbench를 부르지 않아도 다음 행동의 정리에서 이어서 장착·납품한다', () => {
+    const state = readyForCarryOver();
+    mergeParts(state, EASY, 0, 1);
     const next = openPartBox(state, EASY, NOW, sequence(0.5))!;
     expect(next.find((event) => event.type === 'delivered')).toMatchObject({ order: 1, orderIndex: 1, reward: 200 });
     expect(state.order).toBe(2);

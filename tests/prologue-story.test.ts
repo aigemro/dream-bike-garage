@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { characterPixelMaps } from '../src/game/release/art-character-pixel';
 import {
   PROLOGUE_COMMENTARY,
+  PROLOGUE_FINAL_GAP_M,
   PROLOGUE_GOAL,
   PROLOGUE_INTERVIEW,
   PROLOGUE_INTRO,
@@ -41,16 +42,24 @@ describe('프롤로그 대회 대본', () => {
     expect(race.playerTimeMs).toBe(uncle.finishTimeMs);
   });
 
-  it('오르막에서 밀렸다가 마지막 스퍼트 후반에 역전해 아슬아슬하게 이긴다', () => {
+  it('오르막에서 밀렸다가 마지막 600m에 2위로 추격, 결승 300m 안쪽에서 역전해 사진 판정급으로 이긴다', () => {
     expect(isPrologueStoryRace(check)).toBe(true);
     expect(check.rankAfterClimb).toBeGreaterThanOrEqual(3);
     expect(check.climbLeaderId).not.toBe(UNCLE_ID);
     expect(check.gapAtSprintMeters).toBeGreaterThanOrEqual(PROLOGUE_SPRINT_GAP_M.min);
     expect(check.gapAtSprintMeters).toBeLessThanOrEqual(PROLOGUE_SPRINT_GAP_M.max);
+    expect(check.rankAtFinal).toBe(2);
+    expect(check.gapAtFinalMeters).toBeGreaterThanOrEqual(PROLOGUE_FINAL_GAP_M.min);
+    expect(check.gapAtFinalMeters).toBeLessThanOrEqual(PROLOGUE_FINAL_GAP_M.max);
     expect(check.leadTakenAt).toBeGreaterThanOrEqual(PROLOGUE_LEAD_TAKEN_AT.min);
     expect(check.leadTakenAt).toBeLessThanOrEqual(PROLOGUE_LEAD_TAKEN_AT.max);
     expect(check.marginMs).toBeGreaterThanOrEqual(PROLOGUE_MARGIN_MS.min);
     expect(check.marginMs).toBeLessThanOrEqual(PROLOGUE_MARGIN_MS.max);
+  });
+
+  it('역전은 결승 300m 안쪽(진행률 0.9 이상)이라 컷인 뒤 곧바로 결승이 이어진다', () => {
+    expect(PROLOGUE_LEAD_TAKEN_AT.min).toBeGreaterThanOrEqual(0.9);
+    expect((1 - check.leadTakenAt) * PROLOGUE_RACE.distanceMeters).toBeLessThanOrEqual(300);
   });
 
   it('선수 수치는 삼촌이 대부분의 시드에서 이기는 성격을 유지한다', () => {
@@ -109,6 +118,17 @@ describe('프롤로그 문구', () => {
   it('해설의 {leader} 자리를 선수 이름으로 채운다', () => {
     expect(commentaryLine(PROLOGUE_COMMENTARY.climb, '루카')).toContain('루카');
     expect(commentaryLine(PROLOGUE_COMMENTARY.climb, '루카')).not.toContain('{leader}');
+    expect(commentaryLine(PROLOGUE_COMMENTARY.final, '루카')).toContain('루카');
+    expect(commentaryLine(PROLOGUE_COMMENTARY.final, '루카')).not.toContain('{leader}');
+  });
+
+  it('해설 배너는 한 줄(26자 이하), 역전 컷인 제목은 큰 글자라 6자 이하다', () => {
+    const banners = [PROLOGUE_COMMENTARY.start, commentaryLine(PROLOGUE_COMMENTARY.climb, '강철민'), PROLOGUE_COMMENTARY.descent, PROLOGUE_COMMENTARY.sprint, commentaryLine(PROLOGUE_COMMENTARY.final, '강철민'), PROLOGUE_COMMENTARY.takeLead, PROLOGUE_COMMENTARY.finish];
+    banners.forEach((banner) => {
+      expect(banner).not.toContain('\n');
+      expect(banner.length, banner).toBeLessThanOrEqual(26);
+    });
+    expect(PROLOGUE_COMMENTARY.takeLeadTitle.length).toBeLessThanOrEqual(6);
   });
 });
 

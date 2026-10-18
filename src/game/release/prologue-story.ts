@@ -2,11 +2,13 @@
 // 처음 게임을 시작하면 주인공(두리)이 아니라 프로 선수인 삼촌이 달리는 대회를 먼저 중계로 보여 주고,
 // 삼촌의 우승을 본 두리가 그 대회를 목표로 자전거 공방 알바를 시작하는 데서 본편이 이어집니다.
 // - 대회·팀·선수 이름은 모두 가상입니다(실제 브랜드·팀·대회 요소는 라이선스 검토 전까지 쓰지 않음, GAME_CONCEPT 6절).
-// - 결과는 연출 대본이라 항상 삼촌이 우승합니다. 시드 시뮬레이션 중 '오르막에서 밀렸다가 마지막 스퍼트로 역전'하는
-//   경기를 결정적으로 골라 같은 레이스 중계 화면(race-cinematic-broadcast)이 재생합니다.
+// - 결과는 연출 대본이라 항상 삼촌이 우승합니다. 시드 시뮬레이션 중 '오르막에서 밀렸다가 마지막 600m에 2위로 추격,
+//   결승 300m 안쪽에서 역전해 0.5초 안쪽으로 이기는' 경기를 결정적으로 골라 같은 레이스 중계 화면(race-cinematic-broadcast)이
+//   재생합니다. 막판 연출(역전 컷인·사진 판정)의 시점은 race-climax가 이 타임라인에서 읽습니다.
 // - 문구는 기획 확정 전 가안입니다. 화면 코드는 이 파일의 문구만 읽으므로 여기만 고치면 됩니다.
 import type { PixelCharacterEmotion } from './art-character-pixel';
 import type { BikeCategory } from './bike-pixel-sprite';
+import { finalStretchFrom, leadTakenProgress, standingsAt } from './race-climax';
 import { randomFor, segmentAt, type RaceMeta, type RaceResult, type RaceSegmentId } from './race-progress';
 
 /** 프롤로그 대회: 프로 대회의 마지막 3km를 중계합니다(참가비·상금 없음). */
@@ -65,12 +67,14 @@ const PACE_NOISE = 0.05;
 export const PROLOGUE_SEED = 20261118;
 const MAX_SEED_ATTEMPTS = 2000;
 
-/** 대본 조건: 우승 격차가 이 범위면 '마지막에 아슬아슬하게 이겼다'로 읽힙니다. */
-export const PROLOGUE_MARGIN_MS = { min: 400, max: 1500 };
-/** 스퍼트 시작 시점에 삼촌이 선두와 떨어져 있어야 하는 거리 범위(m): 화면 안에서 따라잡는 장면이 보이게 */
-export const PROLOGUE_SPRINT_GAP_M = { min: 15, max: 45 };
-/** 삼촌이 마지막으로 선두에 올라서는 진행률 범위: 스퍼트 후반의 역전으로 보이게 */
-export const PROLOGUE_LEAD_TAKEN_AT = { min: 0.78, max: 0.97 };
+/** 대본 조건: 우승 격차가 이 범위면 '사진 판정급으로 아슬아슬하게 이겼다'로 읽힙니다(사진 판정 슬로모션 범위 안). */
+export const PROLOGUE_MARGIN_MS = { min: 200, max: 600 };
+/** 스퍼트 시작(진행률 0.65) 때 삼촌이 선두와 떨어져 있어야 하는 거리 범위(m): 화면 안(소프트 클램프 180px)에서 추격이 보이게 */
+export const PROLOGUE_SPRINT_GAP_M = { min: 40, max: 80 };
+/** 마지막 600m에 들어설 때 삼촌은 2위여야 하고 선두와의 거리는 이 범위(m): 선두 표식과 속도선이 켜질 때 '바짝 쫓는' 그림 */
+export const PROLOGUE_FINAL_GAP_M = { min: 15, max: 40 };
+/** 삼촌이 마지막으로 선두에 올라서는 진행률 범위: 결승 300m~120m 전의 역전이라 컷인 뒤 곧바로 결승이 이어집니다 */
+export const PROLOGUE_LEAD_TAKEN_AT = { min: 0.9, max: 0.96 };
 
 /** 프로 선수 8명의 시드 시뮬레이션. race-progress.simulateRace와 같은 틱·타임라인 형식으로 돌려줍니다. */
 export function simulatePrologueRace(seed: number): RaceResult {
@@ -124,53 +128,33 @@ export type PrologueStoryCheck = {
   gapAtSprintMeters: number;
   /** 오르막이 끝날 때 선두 선수 id */
   climbLeaderId: string;
+  /** 마지막 600m에 들어설 때 삼촌의 순위 */
+  rankAtFinal: number;
+  /** 마지막 600m에 들어설 때 선두와의 거리(m) */
+  gapAtFinalMeters: number;
   /** 삼촌이 마지막으로 선두에 올라선(이후 끝까지 지킨) 시점의 진행률 */
   leadTakenAt: number;
 };
 
-/** 진행률 기준점을 삼촌이 처음 넘은 틱에서, 각 선수의 진행률을 봅니다. */
-function standingsWhenUncleReaches(result: RaceResult, progress: number) {
-  const uncle = result.racers.find((racer) => racer.id === UNCLE_ID)!;
-  const tick = Math.max(0, uncle.timeline.findIndex((value) => value >= progress));
-  return [...result.racers]
-    .map((racer) => ({ id: racer.id, progress: racer.timeline[Math.min(tick, racer.timeline.length - 1)] ?? 1 }))
-    .sort((a, b) => b.progress - a.progress);
-}
-
-/** 삼촌이 마지막으로 선두를 빼앗은 틱의 진행률. 끝까지 선두를 지키지 못하면 1 */
-function leadTakenProgress(result: RaceResult): number {
-  const uncle = result.racers.find((racer) => racer.id === UNCLE_ID)!;
-  const others = result.racers.filter((racer) => racer.id !== UNCLE_ID);
-  const behindAt = (tick: number) => {
-    const mine = uncle.timeline[Math.min(tick, uncle.timeline.length - 1)] ?? 1;
-    return others.some((racer) => {
-      const theirs = racer.timeline[Math.min(tick, racer.timeline.length - 1)] ?? 1;
-      // 둘 다 결승선을 넘은 뒤에는 기록이 빠른 쪽이 앞입니다.
-      if (mine >= 1 && theirs >= 1) return racer.finishTimeMs < uncle.finishTimeMs;
-      return theirs > mine;
-    });
-  };
-  for (let tick = uncle.timeline.length - 1; tick >= 0; tick -= 1) {
-    if (behindAt(tick)) return tick + 1 < uncle.timeline.length ? uncle.timeline[tick + 1] : 1;
-  }
-  return 0;
-}
-
-/** 대본 조건을 계산합니다: 삼촌 우승·아슬아슬한 격차·오르막에서 밀린 뒤 스퍼트 역전. */
+/** 대본 조건을 계산합니다: 삼촌 우승·사진 판정급 격차·오르막에서 밀린 뒤 마지막 600m 추격·결승 직전 역전. */
 export function checkPrologueStory(result: RaceResult): PrologueStoryCheck {
   const ordered = [...result.racers].sort((a, b) => a.rank - b.rank);
   const uncle = result.racers.find((racer) => racer.id === UNCLE_ID)!;
   const runnerUp = ordered.find((racer) => racer.id !== UNCLE_ID)!;
-  const afterClimb = standingsWhenUncleReaches(result, 0.45);
-  const atSprint = standingsWhenUncleReaches(result, 0.65);
+  const afterClimb = standingsAt(result, UNCLE_ID, 0.45);
+  const atSprint = standingsAt(result, UNCLE_ID, 0.65);
+  const atFinal = standingsAt(result, UNCLE_ID, finalStretchFrom(result.meta.distanceMeters));
   const uncleAtSprint = atSprint.find((entry) => entry.id === UNCLE_ID)!;
+  const uncleAtFinal = atFinal.find((entry) => entry.id === UNCLE_ID)!;
   return {
-    leadTakenAt: leadTakenProgress(result),
+    leadTakenAt: leadTakenProgress(result, UNCLE_ID),
     uncleWins: uncle.rank === 1,
     marginMs: runnerUp.finishTimeMs - uncle.finishTimeMs,
     rankAfterClimb: afterClimb.findIndex((entry) => entry.id === UNCLE_ID) + 1,
     gapAtSprintMeters: (atSprint[0].progress - uncleAtSprint.progress) * result.meta.distanceMeters,
     climbLeaderId: afterClimb[0].id,
+    rankAtFinal: atFinal.findIndex((entry) => entry.id === UNCLE_ID) + 1,
+    gapAtFinalMeters: (atFinal[0].progress - uncleAtFinal.progress) * result.meta.distanceMeters,
   };
 }
 
@@ -180,6 +164,8 @@ export function isPrologueStoryRace(check: PrologueStoryCheck): boolean {
     && check.rankAfterClimb >= 3
     && check.climbLeaderId !== UNCLE_ID
     && check.gapAtSprintMeters >= PROLOGUE_SPRINT_GAP_M.min && check.gapAtSprintMeters <= PROLOGUE_SPRINT_GAP_M.max
+    && check.rankAtFinal === 2
+    && check.gapAtFinalMeters >= PROLOGUE_FINAL_GAP_M.min && check.gapAtFinalMeters <= PROLOGUE_FINAL_GAP_M.max
     && check.leadTakenAt >= PROLOGUE_LEAD_TAKEN_AT.min && check.leadTakenAt <= PROLOGUE_LEAD_TAKEN_AT.max;
 }
 
@@ -231,14 +217,21 @@ export const PROLOGUE_GOAL = {
   button: '▶ 공방으로 출근',
 };
 
-/** 레이스 중계 해설: 구간에 들어설 때와 삼촌이 선두로 올라설 때 띄웁니다. {leader}는 현재 선두 선수 이름 */
+/**
+ * 레이스 중계 해설. 구간에 들어설 때(start·climb·descent·sprint), 마지막 600m(final), 역전 컷인(takeLead*),
+ * 결승 통과(finish)·사진 판정(photoFinish)에 띄웁니다. {leader}는 그 시점의 선두 선수 이름.
+ * 배너는 한 줄(약 24자)이고, 컷인 제목은 큰 글자라 6자 안쪽으로 둡니다.
+ */
 export const PROLOGUE_COMMENTARY = {
   start: '결승까지 3km! 선두 그룹이 달립니다',
   climb: '오르막! {leader} 선수가 치고 나갑니다',
   descent: `내리막! ${UNCLE_NAME}, 거리를 좁힙니다`,
   sprint: `마지막 스퍼트! ${UNCLE_NAME}이 승부를 겁니다`,
+  final: `결승까지 600m! {leader} 선두, ${UNCLE_NAME} 추격!`,
+  takeLeadTitle: '역전!',
   takeLead: `${UNCLE_NAME}, 선두로 올라섭니다!`,
-  finish: `${UNCLE_NAME} 우승!!`,
+  finish: `${UNCLE_NAME} 우승!! 대역전입니다!`,
+  photoFinish: 'PHOTO FINISH',
 };
 
 /** 해설 문구의 {leader} 자리를 채웁니다. */
