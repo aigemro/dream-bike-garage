@@ -35,7 +35,8 @@ import {
   type WorkbenchPartType,
   type WorkbenchState,
 } from '../../domain/merge-workbench';
-import { recommendMerge, shouldShowHint, type MergeHintReason } from '../../domain/merge-assist';
+import { hasMerge, recommendMerge, shouldShowHint, type MergeHintReason } from '../../domain/merge-assist';
+import { REWARDED_AD_POLICY, formatDuration, isEnergyEmpty, msUntilFullEnergy, type AdOffer } from '../../domain/energy-refill';
 
 const FONT = '"Arial Rounded MT Bold", "Noto Sans KR", sans-serif';
 const INK = '#3b2531';
@@ -71,6 +72,10 @@ const ROW1_Y = 708;
 const ROW2_Y = 762;
 const BOX = { x: 136, y: ROW1_Y, w: 240, h: 48 };
 const RETURN_CONFIRM_MS = 2500;
+// 체력 카드(소진 안내·광고 충전): 보드 가운데에 겹쳐 띄웁니다. 높이는 보여 줄 줄 수에 따라 정합니다.
+const CARD = { x: 195, y: 430, w: 330 };
+// 광고가 끝났다는 신호가 오지 않을 때 '돌아가기'를 보여 주기까지의 시간
+const AD_ESCAPE_MS = 60_000;
 const NONE = -1;
 
 const PART_NAMES: Record<WorkbenchPartType, string> = { frame: '프레임', wheel: '휠셋', drivetrain: '구동계', handlebar: '핸들바' };
@@ -79,6 +84,17 @@ const noneInstalled = (): Installed => ({ frame: false, wheel: false, drivetrain
 type Point = { x: number; y: number };
 type Tone = 'info' | 'error';
 type Drag = { from: number; start: Point; dragging: boolean; hover: number; ghost?: Phaser.GameObjects.Container };
+
+// 보상형 광고 충전(#92) 연결. 광고를 쓸 수 없는 환경이면 컨트롤러가 넘기지 않습니다.
+export type RewardedAdWatchResult = 'rewarded' | 'dismissed' | 'failed' | 'unavailable' | 'busy';
+export type WorkbenchRewardedAd = {
+  offer: () => AdOffer;
+  preload: () => void;
+  // 광고 1회 시청(일시정지·저장·보상 반영은 컨트롤러가 함). 끝나면 결과를 돌려줍니다.
+  watch: () => Promise<RewardedAdWatchResult>;
+  // 광고가 끝나지 않을 때 기다림을 그만둡니다.
+  cancel: () => void;
+};
 
 export type WorkbenchDaySummary = { dayNumber: number; done: number; target: number; earnings: number; closing: boolean };
 
@@ -94,6 +110,7 @@ export type MergeWorkbenchScreenHooks = {
   onDelivered: (delivery: { orderIndex: number; reward: number }) => void;
   onHome: () => void;
   onSfx?: (event: ReleaseSfxEvent) => void;
+  rewardedAd?: WorkbenchRewardedAd;
 };
 
 const textStyle = (size: number, color: string, bold = true): Phaser.Types.GameObjects.Text.TextStyle =>
@@ -138,6 +155,16 @@ class MergeWorkbenchScene extends Phaser.Scene {
   // 합성 추천(Lab #264 B안): 마지막 입력 시각과 지금 보여 주는 중인지
   private lastInputAt = 0;
   private hintShown = false;
+  // 체력 카드: 열려 있는 동안 뒤쪽 입력을 막고, 회복 시간·광고 버튼을 1초마다 갱신합니다.
+  private energyCard?: Phaser.GameObjects.Container;
+  private energyCardEmpty = false;
+  private energyCardTag?: Phaser.GameObjects.Text;
+  private energyCardNext?: Phaser.GameObjects.Text;
+  private energyCardFull?: Phaser.GameObjects.Text;
+  private energyCardAd?: { button: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text };
+  // 광고 재생 중 막: 광고가 끝날 때까지 작업대 입력을 막습니다.
+  private adOverlay?: Phaser.GameObjects.Container;
+  private energyAdTag!: Phaser.GameObjects.Container;
   // 연출 순서: 상태는 즉시 바뀌고, 주문 카드는 이벤트 연출을 따라 늦게 바뀝니다.
   private queue: Promise<void> = Promise.resolve();
   private generation = 0;
@@ -347,6 +374,15 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.energySub = energy.sub;
     this.add.rectangle(24, ROW2_Y + 16, 160, 5, DARK_WOOD).setOrigin(0, 0.5).setDepth(4);
     this.energyFill = this.add.rectangle(24, ROW2_Y + 16, 160, 5, GREEN).setOrigin(0, 0.5).setDepth(5);
+    // 체력 표시를 누르면 체력 카드(회복 시간·광고 충전)를 엽니다.
+    this.add.rectangle(104, ROW2_Y, 172, 48, 0xffffff, 0.001).setDepth(6)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.onEnergyTap());
+    // 지금 광고 충전을 할 수 있으면 체력 표시 오른쪽 위에 작은 표식을 둡니다.
+    this.energyAdTag = this.add.container(166, ROW2_Y - 12, [
+      this.add.rectangle(0, 0, 40, 16, GREEN).setStrokeStyle(2, BORDER),
+      this.add.text(0, 0, `▶+${REWARDED_AD_POLICY.amount}`, textStyle(9, CREAM_TEXT)).setOrigin(0.5),
+    ]).setDepth(5).setVisible(false);
 
     const combo = this.infoPanel(286);
     this.comboTitle = combo.title;
@@ -469,7 +505,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
       .setText(block === 'full'
         ? '작업대가 가득 찼어요 · 반품으로 자리 확보'
         : block === 'energy'
-          ? `체력 회복 중 · 다음 +1 ${clockLabel(msUntilNextEnergy(this.state, now))}`
+          ? '체력 소진 · 눌러서 회복 안내 보기'
           : `${free ? '무료 상자 · 체력 소모 없음' : '점선 칸에 자동 배치'}${sure ? ' · 필수 부품 확정' : ''}`)
       .setColor(block ? ALERT : free || sure ? SUCCESS : MUTED);
     this.boxCost.setText(free ? `무료 ×${this.state.freeBoxes}` : '⚡ −1').setColor(free ? SUCCESS : ALERT);
@@ -483,6 +519,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.energyTitle.setText(`⚡ 알바 체력 ${this.state.energy}/${ENERGY_MAX}`);
     this.energySub.setText(this.state.energy >= ENERGY_MAX ? '가득 참' : `다음 +1 ${clockLabel(msUntilNextEnergy(this.state, now))}`);
     this.energyFill.setScale(this.state.energy / ENERGY_MAX, 1);
+    this.energyAdTag.setVisible(this.hooks.rewardedAd?.offer().available === true);
     this.comboTitle.setText(`연쇄 합성 ${this.state.combo}`);
     this.comboDots.forEach((dot, i) => dot.setFillStyle(i < this.state.combo ? (i < COMBO_FREE_BOX ? GREEN : AMBER) : CREAM));
     this.comboSub.setText(`무료 상자 ${this.state.freeBoxes} · 확정 ${this.state.guarantees}`);
@@ -503,6 +540,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
     recoverEnergy(this.state, Date.now());
     if (before !== this.state.energy) this.hooks.onChange();
     this.renderShelf();
+    this.refreshEnergyCard();
   }
 
   // ── 합성 추천 (Lab #264 B안) ──
@@ -515,7 +553,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
   }
 
   private maybeHint() {
-    if (!this.alive || this.hintShown || this.drag || !this.hooks.canPlay()) return;
+    if (!this.alive || this.hintShown || this.drag || this.energyCard || this.adOverlay || !this.hooks.canPlay()) return;
     const selecting = this.selected !== NONE && !!this.state.board[this.selected];
     if (!shouldShowHint(this.state, performance.now() - this.lastInputAt, selecting)) return;
     const pick = recommendMerge(this.state, this.hooks.orders);
@@ -648,14 +686,173 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.cancelDrag();
     const events = openPartBox(this.state, this.hooks.orders, Date.now());
     if (!events) {
-      this.say(supplyBlock(this.state) === 'full'
-        ? '작업대에 빈칸이 없어요. 합성하거나 부품을 반품해 자리를 만드세요.'
-        : `알바 체력이 부족해요. ${clockLabel(msUntilNextEnergy(this.state, Date.now()))} 뒤 1 회복돼요. 오늘 진행은 그대로 저장돼요.`, 'error');
+      if (supplyBlock(this.state) === 'energy') {
+        this.hooks.onSfx?.('tap');
+        this.openEnergyCard();
+      } else {
+        this.say('작업대에 빈칸이 없어요. 합성하거나 부품을 반품해 자리를 만드세요.', 'error');
+      }
       this.renderShelf();
       return;
     }
     if (this.selected !== NONE && !this.state.board[this.selected]) this.selected = NONE;
     this.commit(events);
+    // 마지막 체력을 쓴 순간: 납품 안내가 없으면 다음에 할 수 있는 일을 알려 줍니다.
+    if (isEnergyEmpty(this.state) && !events.some((event) => event.type === 'delivered')) {
+      this.setInfo('마지막 체력을 썼어요. 합성은 체력 없이 할 수 있고, 부품 상자를 누르면 회복 안내를 볼 수 있어요.');
+    }
+  }
+
+  // ── 체력 카드: 소진 안내(Lab #263 A안) + 보상형 광고 충전(#92) ──
+  // 체력 0에서 상자를 누르거나 체력 표시를 누르면 엽니다. 회복 시간과(소진이면) 체력 없이 할 수 있는 일을 알려 주고,
+  // 광고를 쓸 수 있는 환경이면 광고 충전 버튼을 둡니다.
+  private onEnergyTap() {
+    if (this.blockedByDay() || this.adOverlay) return;
+    this.hooks.onSfx?.('tap');
+    this.openEnergyCard();
+  }
+
+  private openEnergyCard() {
+    if (this.energyCard || this.adOverlay) return;
+    this.cancelDrag();
+    this.clearHint();
+    const empty = isEnergyEmpty(this.state);
+    const mergeable = hasMerge(this.state.board);
+    const ad = this.hooks.rewardedAd;
+    // 줄 배치: 제목·설명·회복 시간 → (소진) 할 수 있는 일 → (광고) 충전 → (소진) 홈으로 → 닫기
+    const height = 178 + (empty ? 48 : 0) + (ad ? 54 : 0) + (empty ? 52 : 0) + 42;
+    const top = CARD.y - height / 2;
+    const wrapped = (y: number, message: string, color: string) => this.add.text(CARD.x, y, message, {
+      ...textStyle(11, color, false), align: 'center', wordWrap: { width: CARD.w - 44 }, lineSpacing: 2,
+    }).setOrigin(0.5, 0);
+    this.energyCardEmpty = empty;
+    this.energyCardTag = this.add.text(CARD.x, top + 22, '', textStyle(10, CREAM_TEXT)).setOrigin(0.5);
+    this.energyCardNext = this.add.text(CARD.x, top + 128, '', textStyle(14, INK)).setOrigin(0.5);
+    this.energyCardFull = this.add.text(CARD.x, top + 150, '', textStyle(11, MUTED, false)).setOrigin(0.5);
+    const card = this.add.container(0, 0, [
+      // 화면 전체를 덮는 어두운 막: 뒤쪽 보드·버튼 입력을 막습니다.
+      this.add.rectangle(195, 405, 390, 810, 0x1d1016, 0.55).setInteractive(),
+      this.add.rectangle(CARD.x, CARD.y, CARD.w, height, CREAM).setStrokeStyle(4, BORDER),
+      this.add.rectangle(CARD.x, top + 22, 108, 22, empty ? RED : GREEN).setStrokeStyle(2, BORDER),
+      this.energyCardTag,
+      this.add.text(CARD.x, top + 52, empty ? '⚡ 알바 체력이 바닥났어요' : '⚡ 알바 체력 충전', textStyle(16, INK)).setOrigin(0.5),
+      wrapped(top + 70, empty ? '오늘 진행은 그대로 저장돼요. 체력이 차면 이어서 영업해요.' : '체력은 실제 시간 10분마다 1씩 회복돼요.', MUTED),
+      this.add.rectangle(CARD.x, top + 139, CARD.w - 40, 54, GOLD).setStrokeStyle(2, BROWN),
+      this.energyCardNext,
+      this.energyCardFull,
+    ]).setDepth(60);
+    let y = top + 178;
+    if (empty) {
+      card.add(wrapped(y, mergeable
+        ? '합성은 체력 없이 계속할 수 있어요. 상자 없이 3연쇄 합성하면 무료 상자를 받아요.'
+        : '지금은 합성할 쌍이 없어요. 회복을 기다리는 동안 홈에서 도감과 강화를 둘러보세요.', mergeable ? SUCCESS : MUTED));
+      y += 48;
+    }
+    if (ad) {
+      this.energyCardAd = this.cardButton(card, y + 22, 280, 44, GREEN, '', () => void this.watchAd());
+      y += 54;
+      if (ad.offer().available) ad.preload();
+    }
+    if (empty) {
+      this.cardButton(card, y + 22, 280, 44, GOLD, '홈으로', () => { this.closeEnergyCard(); this.hooks.onHome(); });
+      y += 52;
+    }
+    this.cardButton(card, y + 14, 160, 28, CREAM, empty && mergeable ? '작업대로 돌아가기' : '닫기', () => this.closeEnergyCard());
+    this.energyCard = card;
+    this.refreshEnergyCard();
+  }
+
+  private cardButton(card: Phaser.GameObjects.Container, y: number, width: number, height: number, fill: number, label: string, handler: () => void) {
+    const button = this.add.rectangle(CARD.x, y, width, height, fill).setStrokeStyle(3, BORDER)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => { this.hooks.onSfx?.('tap'); handler(); });
+    const text = this.add.text(CARD.x, y, label, textStyle(12, INK)).setOrigin(0.5);
+    card.add([button, text]);
+    return { button, label: text };
+  }
+
+  // 카드가 열려 있으면 회복 시간·광고 버튼을 갱신하고, 소진 카드는 상자를 열 수 있게 되면 닫습니다.
+  private refreshEnergyCard() {
+    if (!this.energyCard) return;
+    if (this.energyCardEmpty && !isEnergyEmpty(this.state)) {
+      this.closeEnergyCard();
+      this.say('체력이 회복됐어요. 부품 상자를 열 수 있어요.');
+      return;
+    }
+    const now = Date.now();
+    const full = this.state.energy >= ENERGY_MAX;
+    this.energyCardTag?.setText(`ENERGY ${this.state.energy}/${ENERGY_MAX}`);
+    this.energyCardNext?.setText(full ? '체력이 가득 찼어요' : `다음 +1  ${clockLabel(msUntilNextEnergy(this.state, now))}`);
+    this.energyCardFull?.setText(full ? '상자를 열면 1씩 줄어요' : `가득 참(${ENERGY_MAX})까지 ${formatDuration(msUntilFullEnergy(this.state, now))}`);
+    const ad = this.hooks.rewardedAd;
+    if (!ad || !this.energyCardAd) return;
+    const offer = ad.offer();
+    const { button, label } = this.energyCardAd;
+    button.setFillStyle(offer.available ? GREEN : 0xe8d3a6).setStrokeStyle(3, offer.available ? BORDER : 0xb08a6a);
+    label.setColor(offer.available ? CREAM_TEXT : MUTED).setText(offer.available
+      ? `▶ 광고 보고 체력 +${REWARDED_AD_POLICY.amount}  (오늘 ${offer.left}/${REWARDED_AD_POLICY.perDay})`
+      : offer.block === 'daily-limit'
+        ? '오늘 광고 충전을 모두 썼어요'
+        : offer.block === 'cooldown'
+          ? `다음 광고 충전까지 ${clockLabel(offer.cooldownMs)}`
+          : `체력 ${REWARDED_AD_POLICY.maxEnergy} 이하일 때 광고로 충전할 수 있어요`);
+  }
+
+  private closeEnergyCard() {
+    this.energyCard?.destroy(true);
+    this.energyCard = undefined;
+    this.energyCardTag = undefined;
+    this.energyCardNext = undefined;
+    this.energyCardFull = undefined;
+    this.energyCardAd = undefined;
+  }
+
+  // 광고 1회: 카드를 닫고 재생 중 막을 띄운 뒤, 컨트롤러가 일시정지·저장·보상 반영을 마치면 결과를 알려 줍니다.
+  private async watchAd() {
+    const ad = this.hooks.rewardedAd;
+    if (!ad || this.adOverlay) return;
+    if (!ad.offer().available) { this.refreshEnergyCard(); return; }
+    this.closeEnergyCard();
+    this.showAdOverlay(ad);
+    const result = await ad.watch();
+    if (!this.alive) return;
+    this.hideAdOverlay();
+    this.renderShelf();
+    if (result === 'rewarded') {
+      this.banner(`⚡ 알바 체력 +${REWARDED_AD_POLICY.amount}`, GREEN, CREAM_TEXT);
+      this.hooks.onSfx?.('reward');
+      this.setInfo(`광고 보상 · 알바 체력 +${REWARDED_AD_POLICY.amount}! 이어서 부품 상자를 열 수 있어요.`);
+    } else if (result === 'dismissed') {
+      this.say('광고를 끝까지 보지 않아 체력을 받지 못했어요.', 'error');
+    } else if (result === 'failed') {
+      this.say('광고를 불러오지 못했어요. 체력은 그대로예요. 잠시 후 다시 시도해 주세요.', 'error');
+    } else if (result === 'unavailable') {
+      this.say('지금은 광고로 충전할 수 없어요. 체력 표시를 눌러 조건을 확인하세요.', 'error');
+    }
+  }
+
+  private showAdOverlay(ad: WorkbenchRewardedAd) {
+    this.cancelDrag();
+    this.clearHint();
+    const overlay = this.add.container(0, 0, [
+      this.add.rectangle(195, 405, 390, 810, 0x1d1016, 0.8).setInteractive(),
+      this.add.text(195, 392, '광고를 준비하고 있어요…', textStyle(15, CREAM_TEXT)).setOrigin(0.5),
+      this.add.text(195, 418, '광고가 끝나면 작업대로 돌아와요', textStyle(11, CREAM_TEXT, false)).setOrigin(0.5),
+    ]).setDepth(70);
+    this.adOverlay = overlay;
+    // 광고가 끝났다는 신호가 오지 않으면 직접 돌아갈 수 있게 합니다(보상은 신호를 받은 경우에만).
+    this.time.delayedCall(AD_ESCAPE_MS, () => {
+      if (this.adOverlay !== overlay) return;
+      const button = this.add.rectangle(195, 470, 240, 40, GOLD).setStrokeStyle(3, BORDER)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => ad.cancel());
+      overlay.add([button, this.add.text(195, 470, '광고가 끝나지 않으면 돌아가기', textStyle(12, INK)).setOrigin(0.5)]);
+    });
+  }
+
+  private hideAdOverlay() {
+    this.adOverlay?.destroy(true);
+    this.adOverlay = undefined;
   }
 
   private merge(from: number, to: number) {

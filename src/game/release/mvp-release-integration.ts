@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { startTitleLoadingPrototype } from './title-loading-design';
 import { startHomeDesignPrototype } from './home-design-prototype';
 import { startGuideOverlayPrototype } from './guide-overlay-design';
-import { startMergeWorkbenchScreen } from './merge-workbench-screen';
+import { startMergeWorkbenchScreen, type RewardedAdWatchResult, type WorkbenchRewardedAd } from './merge-workbench-screen';
 import { startRewardSettlementPrototype } from './reward-settlement-design';
 import { startBikeCollectionDesignPrototype, type BikeCollectionDesignMode } from './bike-collection-design-prototype';
 import { startProfileDesignPrototype, type ProfileSummary } from './profile-design-prototype';
@@ -39,9 +39,10 @@ import {
 import { CATALOG_SIZE, catalogBikeById } from './bike-catalog';
 import { WORKBENCH_SCHEDULE } from './workbench-orders';
 import { RELEASE_STORAGE_KEY, alignWorkbenchToDay, createReleaseState, restoreReleaseState, type ReleaseState } from './release-state';
-import { orderIndexOf } from '../../domain/merge-workbench';
+import { orderIndexOf, recoverEnergy } from '../../domain/merge-workbench';
+import { adOffer, grantAdRefill } from '../../domain/energy-refill';
 import { firstSequenceOfDay } from '../../domain/progression';
-import { createPlatform, type GamePlatform, type HapticKind, type Unsubscribe } from '../../platform';
+import { createPlatform, type GamePlatform, type HapticKind, type RewardedAdPort, type Unsubscribe } from '../../platform';
 import { SaveStore } from '../../platform/save-store';
 import { bindSafeAreaCss } from '../../platform/safe-area-css';
 import { showExitConfirm } from '../../ui/exit-confirm';
@@ -105,6 +106,9 @@ export class MvpReleaseIntegrationController {
   private readonly stageId = `mvp-release-stage-${Math.random().toString(36).slice(2)}`;
   private readonly unsubscribers: Unsubscribe[] = [];
   private closeExitConfirm?: () => void;
+  // 보상형 광고 시청 중이면 true. 그동안 앱 전환으로 Day를 재개하거나 소리를 다시 켜지 않습니다.
+  private adWatching = false;
+  private adAbort?: AbortController;
 
   constructor(
     private readonly parent: HTMLElement,
@@ -117,8 +121,9 @@ export class MvpReleaseIntegrationController {
     this.audio.setEnabled(this.state.bgm, this.state.sfx);
     // 앱 전환: 소리를 멈추고, 작업대에서는 Day를 일시정지·재개하며, 화면이 사라질 때 남은 저장을 내보냅니다.
     this.unsubscribers.push(this.platform.onAppVisibilityChange((visible) => {
-      this.audio.setSuspended(!visible);
-      if (this.screen === 'game') {
+      this.audio.setSuspended(!visible || this.adWatching);
+      // 광고가 WebView를 가렸다가 돌아오는 동안에는 Day를 그대로 두고, 광고가 끝난 뒤 재개합니다.
+      if (this.screen === 'game' && !this.adWatching) {
         if (visible) this.resumeToday();
         else this.pauseToday('background');
       }
@@ -264,6 +269,7 @@ export class MvpReleaseIntegrationController {
         onDelivered: (delivery) => this.deliverOrder(delivery.orderIndex, delivery.reward),
         onHome: () => this.show('home'),
         onSfx: (event) => this.play(event),
+        rewardedAd: this.workbenchRewardedAd(),
       });
       return;
     }
@@ -401,6 +407,59 @@ export class MvpReleaseIntegrationController {
     this.state.day = resumeDay(this.state.day);
     this.saveState();
     this.startActiveTimer();
+  }
+
+  // ── 보상형 광고 체력 충전 (#92) ──
+  // 광고를 쓸 수 없는 환경이면 작업대에 광고 버튼을 두지 않습니다.
+  private workbenchRewardedAd(): WorkbenchRewardedAd | undefined {
+    const port = this.platform.rewardedAd;
+    if (!port) return undefined;
+    return {
+      offer: () => adOffer(this.state.workbench, this.state.adRefill, Date.now()),
+      preload: () => port.preload(),
+      watch: () => this.watchRewardedAd(port),
+      cancel: () => this.adAbort?.abort(),
+    };
+  }
+
+  /**
+   * 광고 1회 시청 흐름.
+   * 1) 제안 조건 확인 → Day 일시정지(광고 시간은 영업 시간에 넣지 않음)·소리 정지 → 광고 직전 저장
+   * 2) SDK 보상 이벤트를 받은 순간 체력 +10·기록을 반영하고 바로 저장(닫히기 전에 앱이 종료돼도 보상 유지)
+   * 3) 광고가 끝나면 소리·Day를 되돌립니다. 같은 요청의 중복 보상은 요청 식별자로 막습니다.
+   */
+  private async watchRewardedAd(port: RewardedAdPort): Promise<RewardedAdWatchResult> {
+    if (this.adWatching) return 'busy';
+    const now = Date.now();
+    recoverEnergy(this.state.workbench, now);
+    if (!adOffer(this.state.workbench, this.state.adRefill, now).available) return 'unavailable';
+    this.adWatching = true;
+    const requestId = `ad-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const resumeAfter = this.screen === 'game' && this.state.day.status === 'active';
+    if (resumeAfter) this.pauseToday('ad');
+    this.audio.setSuspended(true);
+    this.saveState();
+    await this.save.flush();
+    const abort = new AbortController();
+    this.adAbort = abort;
+    let granted = false;
+    const outcome = await port.show(() => {
+      const rewardAt = Date.now();
+      recoverEnergy(this.state.workbench, rewardAt);
+      const record = grantAdRefill(this.state.workbench, this.state.adRefill, requestId, rewardAt);
+      if (!record) return;
+      this.state.adRefill = record;
+      granted = true;
+      this.saveState();
+      void this.save.flush();
+    }, abort.signal).catch(() => 'failed' as const);
+    if (this.adAbort === abort) this.adAbort = undefined;
+    this.adWatching = false;
+    const visible = typeof document === 'undefined' || !document.hidden;
+    this.audio.setSuspended(!visible);
+    if (resumeAfter && this.screen === 'game' && visible) this.resumeToday();
+    if (granted) return 'rewarded';
+    return outcome === 'rewarded' ? 'failed' : outcome;
   }
 
   private pauseToday(reason: DayPauseReason) {

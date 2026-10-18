@@ -1,5 +1,6 @@
 // 웹 브라우저(GitHub Pages·로컬 개발) 플랫폼: localStorage와 DOM 이벤트로 구현합니다.
-import type { AsyncKeyValueStorage, GamePlatform, HapticKind } from './types';
+import { createMockRewardedAd } from './mock-rewarded-ad';
+import type { AsyncKeyValueStorage, GamePlatform, HapticKind, RewardedAdPort } from './types';
 
 type SyncStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -20,6 +21,14 @@ export function createAsyncStorage(resolve: () => SyncStorage | undefined): Asyn
       resolve()?.removeItem(key);
     },
   };
+}
+
+// 웹에는 실제 광고가 없습니다. 개발 서버나 주소에 ?mockAd 가 있을 때만 모의 광고로 흐름을 확인합니다.
+function browserRewardedAd(): RewardedAdPort | null {
+  try {
+    if (import.meta.env.DEV || new URLSearchParams(globalThis.location?.search ?? '').has('mockAd')) return createMockRewardedAd();
+  } catch { /* location이 없는 환경 */ }
+  return null;
 }
 
 function browserLocalStorage(): SyncStorage | undefined {
@@ -49,5 +58,6 @@ export function createBrowserPlatform(): GamePlatform {
     getSafeAreaInsets() { return null; },
     onSafeAreaChange() { return () => {}; },
     async lockPortrait() {},
+    rewardedAd: browserRewardedAd(),
   };
 }

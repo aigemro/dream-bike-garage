@@ -57,6 +57,16 @@ describe('릴리스 저장 복구', () => {
     expect(state.day).toMatchObject({ status: 'paused', pauseReason: 'restore', ordersCompleted: 1, earnings: 1000 });
   });
 
+  it('광고 충전 기록은 체력과 함께 복구하고, 없거나 손상됐으면 기록 없음으로 본다', () => {
+    const saved = createReleaseState(NOW);
+    expect(saved.adRefill).toBeNull();
+    saved.adRefill = { date: '2026-10-18', count: 2, lastRewardAt: NOW - 1000, lastRequestId: 'ad-1' };
+    expect(restoreReleaseState(JSON.stringify(saved), NOW).adRefill).toEqual(saved.adRefill);
+    expect(restoreReleaseState(JSON.stringify({ ...saved, adRefill: { date: 'x', count: -1 } }), NOW).adRefill).toBeNull();
+    const { adRefill: _omitted, ...beforeAds } = saved;
+    expect(restoreReleaseState(JSON.stringify(beforeAds), NOW).adRefill).toBeNull();
+  });
+
   it('정산까지 끝난 Day는 급여를 다시 주지 않고 다음 Day 준비로 열며, 작업대는 다음 영업일 첫 주문을 가리킨다', () => {
     const saved = createReleaseState(NOW);
     let day = startDay(saved.day, '2026-10-09T00:00:00.000Z');

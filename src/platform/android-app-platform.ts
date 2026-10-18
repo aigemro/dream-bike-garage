@@ -31,5 +31,7 @@ export function createAndroidAppPlatform(): GamePlatform {
     },
     // 세로 고정은 AndroidManifest의 screenOrientation으로 처리합니다.
     async lockPortrait() {},
+    // 테스트 앱에는 광고가 없습니다.
+    rewardedAd: null,
   };
 }

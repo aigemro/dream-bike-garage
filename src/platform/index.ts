@@ -16,4 +16,4 @@ export async function createPlatform(): Promise<GamePlatform> {
   return createBrowserPlatform();
 }
 
-export type { AsyncKeyValueStorage, GamePlatform, HapticKind, PlatformKind, SafeAreaInsets, Unsubscribe } from './types';
+export type { AsyncKeyValueStorage, GamePlatform, HapticKind, PlatformKind, RewardedAdOutcome, RewardedAdPort, SafeAreaInsets, Unsubscribe } from './types';
