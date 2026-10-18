@@ -1,13 +1,14 @@
 // 머지 작업대(머지 코어 E안) 규칙 단위 테스트
 import { describe, expect, it } from 'vitest';
 import {
-  COMBO_FREE_BOX,
-  COMBO_GUARANTEE,
+  BONUS_FREE_BOX_AT,
+  BONUS_PICK_BOX_AT,
   ENERGY_MAX,
   ENERGY_RECOVERY_MS,
   INTAKE_ORDER,
   WORKBENCH_CELLS,
   canMerge,
+  canPlacePickBox,
   createWorkbench,
   discardPart,
   mergeParts,
@@ -17,6 +18,7 @@ import {
   nextIntakeSlot,
   openPartBox,
   parseWorkbench,
+  placePickBox,
   recoverEnergy,
   NEEDED_PART_RATE,
   rollPart,
@@ -61,7 +63,7 @@ describe('시작 작업대', () => {
   it('지급 부품만 합성해 첫 주문을 납품할 수 있고, 납품은 정확히 한 번 확정된다', () => {
     const state = createWorkbench(ORDERS, NOW);
     expect(mergeParts(state, ORDERS, 0, 1)).toEqual([
-      { type: 'merged', from: 0, to: 1, part: { type: 'frame', level: 2 }, combo: 1 },
+      { type: 'merged', from: 0, to: 1, part: { type: 'frame', level: 2 }, count: 1 },
       { type: 'installed', from: 1, part: { type: 'frame', level: 2 }, order: 0 },
     ]);
     const events = mergeParts(state, ORDERS, 2, 3)!;
@@ -109,42 +111,101 @@ describe('합성', () => {
     expect(state.board[0]).toEqual({ type: 'frame', level: 4 });
   });
 
-  it('상자를 열지 않고 이어 합성하면 3연쇄에 무료 상자, 5연쇄에 필수 부품 확정을 받는다', () => {
+  it('합성 3번째에 무료 상자, 5번째에 확정 상자를 받고 다시 0부터 센다', () => {
     const state = createWorkbench(ORDERS, NOW, 1);
     clearBoard(state);
     // 프레임 Lv.3만 남겨 합성 중 납품이 일어나지 않게 합니다. 구동계는 이미 장착된 상태입니다.
     state.installed = { frame: false, wheel: true, drivetrain: true, handlebar: true };
-    for (let row = 0; row < 5; row += 1) {
+    for (let row = 0; row < 6; row += 1) {
       state.board[row * 6] = { type: 'drivetrain', level: 1 };
       state.board[row * 6 + 1] = { type: 'drivetrain', level: 1 };
     }
     const bonuses = [0, 1, 2, 3, 4].flatMap((row) => mergeParts(state, ORDERS, row * 6, row * 6 + 1)!.filter((event) => event.type === 'bonus'));
     expect(bonuses).toEqual([
-      { type: 'bonus', bonus: 'free-box', combo: COMBO_FREE_BOX },
-      { type: 'bonus', bonus: 'guarantee', combo: COMBO_GUARANTEE },
+      { type: 'bonus', bonus: 'free-box', count: BONUS_FREE_BOX_AT },
+      { type: 'bonus', bonus: 'pick-box', count: BONUS_PICK_BOX_AT },
     ]);
-    expect(state).toMatchObject({ freeBoxes: 1, guarantees: 1, combo: 5 });
+    expect(state).toMatchObject({ freeBoxes: 1, pickBoxes: 1, bonusCount: 0 });
+    expect(mergeParts(state, ORDERS, 30, 31)![0]).toMatchObject({ type: 'merged', count: 1 });
+    expect(state.bonusCount).toBe(1);
+  });
+
+  it('상자를 열거나 반품해도 합성 보너스 진행은 끊기지 않는다', () => {
+    const state = createWorkbench(ORDERS, NOW, 1);
+    clearBoard(state);
+    state.installed = { frame: false, wheel: true, drivetrain: true, handlebar: true };
+    state.board[0] = { type: 'drivetrain', level: 1 };
+    state.board[1] = { type: 'drivetrain', level: 1 };
+    state.board[6] = { type: 'drivetrain', level: 1 };
+    state.board[7] = { type: 'drivetrain', level: 1 };
+    state.bonusCount = 1;
+    mergeParts(state, ORDERS, 0, 1);
+    openPartBox(state, ORDERS, NOW, sequence(0.5));
+    discardPart(state, 1);
+    expect(state.bonusCount).toBe(2);
+    const events = mergeParts(state, ORDERS, 6, 7)!;
+    expect(events).toContainEqual({ type: 'bonus', bonus: 'free-box', count: BONUS_FREE_BOX_AT });
+    expect(state).toMatchObject({ freeBoxes: 1, bonusCount: 3 });
+  });
+});
+
+describe('확정 상자', () => {
+  it('고른 부품을 고른 빈칸에 체력 없이 Lv.1로 놓고, 바로 합성할 수 있다', () => {
+    const state = createWorkbench(ORDERS, NOW);
+    state.pickBoxes = 1;
+    state.energy = 0;
+    state.energyAnchor = NOW;
+    expect(canPlacePickBox(state, 0)).toBe(false); // 이미 부품이 있는 칸
+    const events = placePickBox(state, ORDERS, 'frame', 12)!;
+    expect(events[0]).toEqual({ type: 'placed', index: 12, part: { type: 'frame', level: 1 }, free: false, picked: true });
+    expect(state).toMatchObject({ pickBoxes: 0, energy: 0 });
+    expect(mergeTargets(state.board, 12)).toEqual([6]);
+    expect(placePickBox(state, ORDERS, 'frame', 13)).toBeNull(); // 남은 확정 상자 없음
+  });
+
+  it('요구 레벨을 채우면 바로 장착되고, 잘못 놓았으면 되돌릴 수 있다', () => {
+    const state = createWorkbench(ORDERS, NOW, 4);
+    state.pickBoxes = 2;
+    // 순번 4는 구동계 Lv.2를 요구하므로 구동계 Lv.1은 놓기만 하고 장착되지 않습니다.
+    placePickBox(state, ORDERS, 'drivetrain', 30);
+    expect(state.board[30]).toEqual({ type: 'drivetrain', level: 1 });
+    expect(undoLast(state)).toBe(true);
+    expect(state).toMatchObject({ pickBoxes: 2 });
+    expect(state.board[30]).toBeNull();
+    const handlebarDone = createWorkbench(ORDERS, NOW);
+    handlebarDone.installed.handlebar = false;
+    handlebarDone.board[5] = null;
+    handlebarDone.pickBoxes = 1;
+    const installed = placePickBox(handlebarDone, ORDERS, 'handlebar', 40)!;
+    expect(installed).toContainEqual({ type: 'installed', from: 40, part: { type: 'handlebar', level: 1 }, order: 0 });
+  });
+
+  it('없는 부품 종류나 보드 밖 칸은 받지 않는다', () => {
+    const state = createWorkbench(ORDERS, NOW);
+    state.pickBoxes = 1;
+    expect(placePickBox(state, ORDERS, 'saddle' as never, 20)).toBeNull();
+    expect(placePickBox(state, ORDERS, 'frame', WORKBENCH_CELLS)).toBeNull();
+    expect(state.pickBoxes).toBe(1);
   });
 });
 
 describe('부품 상자', () => {
-  it('체력 1을 쓰고 다음 입고 칸에 부품을 넣으며, 연쇄와 되돌리기 기록을 끊는다', () => {
+  it('체력 1을 쓰고 다음 입고 칸에 부품을 넣으며, 되돌리기 기록을 끊는다', () => {
     const state = createWorkbench(ORDERS, NOW);
-    state.combo = 2;
+    state.bonusCount = 2;
     discardPart(state, 6);
     const events = openPartBox(state, ORDERS, NOW, sequence(0.9, 0.6, 0.5))!;
-    expect(events[0]).toEqual({ type: 'placed', index: 21, part: { type: 'drivetrain', level: 1 }, free: false, guaranteed: false });
-    expect(state).toMatchObject({ energy: ENERGY_MAX - 1, combo: 0, undo: null });
+    expect(events[0]).toEqual({ type: 'placed', index: 21, part: { type: 'drivetrain', level: 1 }, free: false, picked: false });
+    expect(state).toMatchObject({ energy: ENERGY_MAX - 1, bonusCount: 2, undo: null });
   });
 
-  it('무료 상자가 있으면 체력 대신 쓰고, 확정 보너스는 미장착 부품을 보장한다', () => {
+  it('무료 상자가 있으면 체력 대신 쓰고, 확정 상자는 남겨 둔다', () => {
     const state = createWorkbench(ORDERS, NOW);
     state.freeBoxes = 1;
-    state.guarantees = 1;
+    state.pickBoxes = 1;
     const events = openPartBox(state, ORDERS, NOW, sequence(0.99, 0.5))!;
-    expect(events[0]).toMatchObject({ type: 'placed', free: true, guaranteed: true });
-    expect(['frame', 'wheel']).toContain((events[0] as { part: { type: string } }).part.type);
-    expect(state).toMatchObject({ energy: ENERGY_MAX, freeBoxes: 0, guarantees: 0 });
+    expect(events[0]).toMatchObject({ type: 'placed', free: true, picked: false });
+    expect(state).toMatchObject({ energy: ENERGY_MAX, freeBoxes: 0, pickBoxes: 1 });
   });
 
   it('보드가 가득 차거나 체력이 없으면 열지 않는다', () => {
@@ -161,14 +222,14 @@ describe('부품 상자', () => {
 
   it(`상자는 ${NEEDED_PART_RATE * 100}% 확률로 아직 장착하지 않은 부품 종류를 우선 낸다`, () => {
     const installed = { frame: true, wheel: true, drivetrain: true, handlebar: false };
-    expect(rollPart(installed, 0, sequence(NEEDED_PART_RATE - 0.01, 0, 0.5), false).part.type).toBe('handlebar');
-    expect(rollPart(installed, 0, sequence(NEEDED_PART_RATE, 0, 0.5), false).part.type).toBe('frame');
+    expect(rollPart(installed, 0, sequence(NEEDED_PART_RATE - 0.01, 0, 0.5)).part.type).toBe('handlebar');
+    expect(rollPart(installed, 0, sequence(NEEDED_PART_RATE, 0, 0.5)).part.type).toBe('frame');
   });
 
   it('미장착 부품이 4번 연속 안 나오면 다음 상자에서 보장한다', () => {
     const installed = { frame: true, wheel: true, drivetrain: true, handlebar: false };
-    expect(rollPart(installed, 0, sequence(0.9, 0.3, 0.5), false)).toMatchObject({ part: { type: 'wheel', level: 1 }, misses: 1 });
-    expect(rollPart(installed, 4, sequence(0.1, 0.1), false)).toMatchObject({ part: { type: 'handlebar', level: 2 }, misses: 0 });
+    expect(rollPart(installed, 0, sequence(0.9, 0.3, 0.5))).toMatchObject({ part: { type: 'wheel', level: 1 }, misses: 1 });
+    expect(rollPart(installed, 4, sequence(0.1, 0.1))).toMatchObject({ part: { type: 'handlebar', level: 2 }, misses: 0 });
   });
 });
 
@@ -244,6 +305,23 @@ describe('저장·복구', () => {
     const badPart = createWorkbench(ORDERS, NOW) as unknown as { board: unknown[] };
     badPart.board[0] = { type: 'saddle', level: 1 };
     expect(parseWorkbench(JSON.stringify(badPart), ORDERS, NOW, 3).order).toBe(3);
+    const badCount = createWorkbench(ORDERS, NOW, 1) as unknown as Record<string, unknown>;
+    badCount.bonusCount = BONUS_PICK_BOX_AT;
+    expect(parseWorkbench(JSON.stringify(badCount), ORDERS, NOW, 6).order).toBe(6);
+  });
+
+  it('이전 연쇄 규칙 저장(combo·guarantees)은 진행을 0으로, 필수 부품 확정을 확정 상자로 옮긴다', () => {
+    const state = createWorkbench(ORDERS, NOW, 2);
+    state.board[7] = { type: 'frame', level: 1 };
+    mergeParts(state, ORDERS, 6, 7);
+    const { bonusCount: _count, pickBoxes: _picks, undo, ...rest } = state;
+    const { bonusCount: _undoCount, pickBoxes: _undoPicks, ...undoRest } = undo!;
+    const legacy = { ...rest, combo: 4, guarantees: 2, freeBoxes: 1, undo: { ...undoRest, combo: 0, guarantees: 2 } };
+    const restored = parseWorkbench(JSON.stringify(legacy), ORDERS, NOW);
+    expect(restored).toMatchObject({ order: 2, bonusCount: 0, pickBoxes: 2, freeBoxes: 1 });
+    expect(restored.board).toEqual(state.board);
+    expect(restored.undo).toMatchObject({ bonusCount: 0, pickBoxes: 2 });
+    expect(restored).not.toHaveProperty('combo');
   });
 });
 

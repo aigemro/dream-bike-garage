@@ -18,6 +18,19 @@ export type HapticKind = 'tap' | 'success' | 'error';
 
 export type Unsubscribe = () => void;
 
+// 보상형 광고 결과: rewarded(보상 이벤트를 받음) · dismissed(보상 없이 닫힘·중단) · failed(미지원·불러오기·표시 실패)
+export type RewardedAdOutcome = 'rewarded' | 'dismissed' | 'failed';
+
+// 보상형 광고. 앱인토스에서는 SDK 전면 광고(리워드 광고 그룹)로, 웹 개발 중에는 모의 광고로 구현합니다.
+export interface RewardedAdPort {
+  // 광고를 미리 불러옵니다. 이미 불러왔거나 불러오는 중이면 아무 일도 하지 않습니다.
+  preload(): void;
+  // 광고를 보여 주고, 닫히거나 실패하면 결과를 돌려줍니다.
+  // onReward는 SDK 보상 이벤트를 받은 순간 요청마다 최대 한 번 호출됩니다(닫힘보다 먼저 올 수 있음).
+  // signal로 중단하면 이후 이벤트는 무시합니다.
+  show(onReward: () => void, signal?: AbortSignal): Promise<RewardedAdOutcome>;
+}
+
 export interface GamePlatform {
   readonly kind: PlatformKind;
   readonly storage: AsyncKeyValueStorage;
@@ -35,4 +48,6 @@ export interface GamePlatform {
   onSafeAreaChange(listener: (insets: SafeAreaInsets) => void): Unsubscribe;
   // 화면 방향을 세로로 고정합니다. 지원하지 않는 환경에서는 아무 일도 하지 않습니다.
   lockPortrait(): Promise<void>;
+  // 보상형 광고. 광고를 쓸 수 없는 환경(안드로이드 테스트 앱, 배포 웹)에서는 null
+  readonly rewardedAd: RewardedAdPort | null;
 }

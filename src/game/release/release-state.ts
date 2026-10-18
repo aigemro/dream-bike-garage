@@ -4,6 +4,7 @@
 import { createWorkbench, orderIndexOf, parseWorkbench, type WorkbenchState } from '../../domain/merge-workbench';
 import { createReadyDay, normalizeRestoredDay, parseDaySession, prepareNextDay, type DayHistoryEntry, type DayState } from '../../domain/day-session';
 import { firstSequenceOfDay } from '../../domain/progression';
+import { parseAdRefillRecord, type AdRefillRecord } from '../../domain/energy-refill';
 import { WORKBENCH_SCHEDULE } from './workbench-orders';
 
 export const RELEASE_STORAGE_KEY = 'dbg-lab-mvp-release-integration-v1';
@@ -25,6 +26,8 @@ export type ReleaseState = {
   day: DayState;
   dayHistory: DayHistoryEntry[];
   workbench: WorkbenchState;
+  // 보상형 광고 체력 충전 기록(#92). 체력(workbench.energy)과 같은 항목에 두어 보상 1회를 한 번의 저장으로 기록합니다.
+  adRefill: AdRefillRecord | null;
 };
 
 // v2: 시작 코인을 0으로 바꿔 첫 주문 급여 → 드림 바이크 강화의 인과관계가 보이게 한다
@@ -44,6 +47,7 @@ export function createReleaseState(now = Date.now()): ReleaseState {
     day: createReadyDay(1),
     dayHistory: [],
     workbench: createWorkbench(WORKBENCH_SCHEDULE, now),
+    adRefill: null,
   };
 }
 
@@ -111,5 +115,7 @@ export function restoreReleaseState(raw: string | null, now = Date.now()): Relea
     day,
     dayHistory: session.history,
     workbench,
+    // v4 안에서 추가한 항목이라 버전은 그대로 두고, 없거나 손상됐으면 기록 없음으로 봅니다.
+    adRefill: v4 ? parseAdRefillRecord(saved.adRefill) : null,
   };
 }

@@ -9,7 +9,8 @@ const MAX_DAY_ORDER_TARGET = 20;
 export const MAX_DAY_HISTORY = 14;
 
 export type DayStatus = 'ready' | 'active' | 'paused' | 'closing' | 'settlement';
-export type DayPauseReason = 'background' | 'screen-navigation' | 'restore';
+// ad: 보상형 광고 시청 중(광고 시간은 영업 시간에 넣지 않음)
+export type DayPauseReason = 'background' | 'screen-navigation' | 'restore' | 'ad';
 
 export type DayState = {
   dayNumber: number;
@@ -32,7 +33,7 @@ export type DayHistoryEntry = {
 };
 
 const STATUSES: DayStatus[] = ['ready', 'active', 'paused', 'closing', 'settlement'];
-const PAUSE_REASONS: DayPauseReason[] = ['background', 'screen-navigation', 'restore'];
+const PAUSE_REASONS: DayPauseReason[] = ['background', 'screen-navigation', 'restore', 'ad'];
 // 일시정지 중에 확정된 납품(예: 화면을 떠나는 순간 끝난 합성)도 잃지 않도록 함께 기록합니다.
 const RECORDING_STATUSES: DayStatus[] = ['active', 'paused'];
 

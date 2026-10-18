@@ -65,6 +65,14 @@ README 표의 업로드 날짜와 커밋도 함께 바꿉니다.
 
 남은 확인(실기기): 게임이 `backEvent`를 받을 때 토스 앱의 기본 뒤로가기 동작(미니앱 닫기)이 함께 일어나는지, 상단 바 `×`를 눌렀을 때 토스가 자체 확인 창을 띄우는지, 첫 화면 10초 이내 로딩.
 
+### 보상형 광고 (`GamePlatform.rewardedAd`, #92)
+
+- 앱인토스 어댑터는 SDK `loadFullScreenAd`·`showFullScreenAd`를 `src/platform/rewarded-ad.ts`로 감쌉니다. 게임 규칙·흐름은 [머지 작업대 문서 9절](MERGE_WORKBENCH_DAY_SESSION.md)에 있습니다.
+- 광고 그룹 ID: 빌드 환경 변수 `VITE_TOSS_REWARDED_AD_GROUP_ID`에 콘솔에서 발급한 리워드 광고 그룹 ID를 넣습니다. 비어 있으면 공식 테스트 ID `ait-ad-test-rewarded-id`를 씁니다.
+  - **테스트에는 반드시 테스트 ID를 씁니다.** 운영 ID로 테스트하면 제재를 받을 수 있습니다(공식 안내). 운영 ID는 운영 번들을 만들 때만 넣습니다.
+  - 예: `VITE_TOSS_REWARDED_AD_GROUP_ID=<콘솔 ID> npm run build:toss`
+- `npm run dev:toss`의 SDK 모의 광고는 불러오기·닫힘만 흉내 내고 보상 이벤트를 보내지 않습니다. 보상 흐름은 웹 개발 서버의 모의 광고로 확인하고, 실제 광고는 토스 앱 테스트 번들로 확인합니다.
+
 ### 계정 슬롯 저장 (`SaveStore`)
 
 - 키 형식: `dbg:v1:{슬롯}:{항목}`. 항목은 `release`(진행·작업대·Day)·`collection`·`growth`, 슬롯은 사용자 키 또는 `local`
