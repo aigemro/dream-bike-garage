@@ -434,7 +434,7 @@ export class MvpReleaseIntegrationController {
     const port = this.platform.rewardedAd;
     if (!port) return undefined;
     return {
-      offer: () => adOffer(this.state.workbench, this.state.adRefill, Date.now()),
+      offer: () => adOffer(this.state.workbench),
       preload: () => port.preload(),
       watch: () => this.watchRewardedAd(port),
       cancel: () => this.adAbort?.abort(),
@@ -451,7 +451,7 @@ export class MvpReleaseIntegrationController {
     if (this.adWatching) return 'busy';
     const now = Date.now();
     recoverEnergy(this.state.workbench, now);
-    if (!adOffer(this.state.workbench, this.state.adRefill, now).available) return 'unavailable';
+    if (!adOffer(this.state.workbench).available) return 'unavailable';
     this.adWatching = true;
     const requestId = `ad-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const resumeAfter = this.screen === 'game' && this.state.day.status === 'active';

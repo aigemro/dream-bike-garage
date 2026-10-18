@@ -60,8 +60,11 @@ describe('릴리스 저장 복구', () => {
   it('광고 충전 기록은 체력과 함께 복구하고, 없거나 손상됐으면 기록 없음으로 본다', () => {
     const saved = createReleaseState(NOW);
     expect(saved.adRefill).toBeNull();
-    saved.adRefill = { date: '2026-10-18', count: 2, lastRewardAt: NOW - 1000, lastRequestId: 'ad-1' };
+    saved.adRefill = { count: 2, lastRewardAt: NOW - 1000, lastRequestId: 'ad-1' };
     expect(restoreReleaseState(JSON.stringify(saved), NOW).adRefill).toEqual(saved.adRefill);
+    // 하루 횟수 제한이 있던 이전 저장은 날짜만 버리고 복구합니다.
+    const legacy = { ...saved, adRefill: { date: '2026-10-18', ...saved.adRefill } };
+    expect(restoreReleaseState(JSON.stringify(legacy), NOW).adRefill).toEqual(saved.adRefill);
     expect(restoreReleaseState(JSON.stringify({ ...saved, adRefill: { date: 'x', count: -1 } }), NOW).adRefill).toBeNull();
     const { adRefill: _omitted, ...beforeAds } = saved;
     expect(restoreReleaseState(JSON.stringify(beforeAds), NOW).adRefill).toBeNull();

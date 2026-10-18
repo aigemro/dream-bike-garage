@@ -933,12 +933,8 @@ class MergeWorkbenchScene extends Phaser.Scene {
     const { button, label } = this.energyCardAd;
     button.setFillStyle(offer.available ? GREEN : 0xe8d3a6).setStrokeStyle(3, offer.available ? BORDER : 0xb08a6a);
     label.setColor(offer.available ? CREAM_TEXT : MUTED).setText(offer.available
-      ? `▶ 광고 보고 체력 +${REWARDED_AD_POLICY.amount}  (오늘 ${offer.left}/${REWARDED_AD_POLICY.perDay})`
-      : offer.block === 'daily-limit'
-        ? '오늘 광고 충전을 모두 썼어요'
-        : offer.block === 'cooldown'
-          ? `다음 광고 충전까지 ${clockLabel(offer.cooldownMs)}`
-          : `체력 ${REWARDED_AD_POLICY.maxEnergy} 이하일 때 광고로 충전할 수 있어요`);
+      ? `▶ 광고 보고 체력 +${REWARDED_AD_POLICY.amount}`
+      : `체력 ${REWARDED_AD_POLICY.maxEnergy} 이하일 때 광고로 충전할 수 있어요`);
   }
 
   private closeEnergyCard() {
