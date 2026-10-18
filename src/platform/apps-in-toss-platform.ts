@@ -1,8 +1,12 @@
 // 앱인토스(토스 앱 WebView) 플랫폼: SDK 호출은 이 파일에만 둡니다.
 // 웹 빌드에는 포함되지 않도록 platform/index.ts에서 앱인토스 빌드일 때만 불러옵니다.
 // 개발 서버(npm run dev:toss)에서는 @apps-in-toss/devtools가 SDK를 mock으로 바꿉니다.
-import { Device, SafeArea, Screen, Storage, User, graniteEvent } from '@apps-in-toss/web-framework';
+import { Device, SafeArea, Screen, Storage, User, graniteEvent, loadFullScreenAd, showFullScreenAd } from '@apps-in-toss/web-framework';
+import { TEST_REWARDED_AD_GROUP_ID, createFullScreenRewardedAd } from './rewarded-ad';
 import type { GamePlatform, HapticKind, SafeAreaInsets } from './types';
+
+// 리워드 광고 그룹 ID: 운영 빌드에서만 VITE_TOSS_REWARDED_AD_GROUP_ID로 콘솔 발급 ID를 넣고, 없으면 공식 테스트 ID를 씁니다.
+const REWARDED_AD_GROUP_ID = import.meta.env.VITE_TOSS_REWARDED_AD_GROUP_ID || TEST_REWARDED_AD_GROUP_ID;
 
 const HAPTIC_TYPE = { tap: 'tickWeak', success: 'success', error: 'error' } as const satisfies Record<HapticKind, string>;
 
@@ -59,6 +63,7 @@ export function createAppsInTossPlatform(): GamePlatform {
         // 토스앱 5.215.0 미만: 콘솔의 화면 방향 설정에 맡깁니다.
       }
     },
+    rewardedAd: createFullScreenRewardedAd({ loadFullScreenAd, showFullScreenAd }, REWARDED_AD_GROUP_ID),
     onSafeAreaChange(listener) {
       try {
         return SafeArea.subscribe({ onEvent: (insets) => { const value = toInsets(insets); if (value) listener(value); } });
