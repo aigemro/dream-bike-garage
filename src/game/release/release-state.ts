@@ -15,6 +15,8 @@ export type ReleaseState = {
   completedOrders: number;
   // 현재 주문의 주문 목록 위치 (작업대 주문 순번에서 계산해 홈·정산 표시에 씁니다)
   orderIndex: number;
+  // 첫 시작 프롤로그(삼촌의 프로 대회)를 끝까지 봤거나 건너뛰었는지
+  prologueDone: boolean;
   tutorialDone: boolean;
   bgm: boolean;
   sfx: boolean;
@@ -35,6 +37,7 @@ export function createReleaseState(now = Date.now()): ReleaseState {
     coins: 0,
     completedOrders: 0,
     orderIndex: 0,
+    prologueDone: false,
     tutorialDone: false,
     bgm: true,
     sfx: true,
@@ -80,6 +83,8 @@ const whole = (value: unknown) => (typeof value === 'number' && Number.isFinite(
  * - 영업 중이던 Day는 일시정지로 열고, 정산까지 끝난 Day는 다음 Day 준비로 엽니다(급여는 납품 때 이미 받음).
  * - 마감(closing) 상태는 그대로 두어 다음 플레이 진입 때 정산합니다.
  * - 작업대 순번은 Day 상태(영업일·오늘 납품 수)에 맞춥니다(주문표가 영업일 기준이므로).
+ * - 프롤로그 기록이 없는 저장(프롤로그 도입 전)은 이미 플레이한 흔적(안내 완료·납품·2일차 이상)이 있으면 본 것으로 둡니다.
+ *   진행 중인 플레이어에게 처음 시작 연출을 다시 보여 주지 않기 위해서입니다.
  */
 export function restoreReleaseState(raw: string | null, now = Date.now()): ReleaseState {
   let saved: Record<string, unknown> | null;
@@ -92,12 +97,16 @@ export function restoreReleaseState(raw: string | null, now = Date.now()): Relea
   if (day.status === 'settlement') day = prepareNextDay(day);
   const workbench = parseWorkbench(v4 ? saved.workbench : null, WORKBENCH_SCHEDULE, now, expectedOrderSequence(day));
   alignWorkbenchToDay(workbench, day);
+  const tutorialDone = flag(saved.tutorialDone, false);
+  const completedOrders = whole(saved.completedOrders);
+  const alreadyPlaying = tutorialDone || completedOrders > 0 || day.dayNumber > 1 || session.history.length > 0;
   return {
     version: 4,
     coins: whole(saved.coins),
-    completedOrders: whole(saved.completedOrders),
+    completedOrders,
     orderIndex: orderIndexOf(workbench.order, WORKBENCH_SCHEDULE),
-    tutorialDone: flag(saved.tutorialDone, false),
+    prologueDone: flag(saved.prologueDone, alreadyPlaying),
+    tutorialDone,
     bgm: flag(saved.bgm, true),
     sfx: flag(saved.sfx, true),
     vibration: flag(saved.vibration, false),

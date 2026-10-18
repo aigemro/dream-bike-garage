@@ -123,3 +123,27 @@ describe('작업대 순번과 영업일 맞추기', () => {
     expect(orderMetaAt(state.orderIndex)?.day).toBe(25);
   });
 });
+
+describe('프롤로그 기록', () => {
+  it('새 게임은 프롤로그를 아직 보지 않은 상태로 시작한다', () => {
+    expect(createReleaseState(NOW).prologueDone).toBe(false);
+    expect(restoreReleaseState(null, NOW).prologueDone).toBe(false);
+  });
+
+  it('저장된 프롤로그 기록은 그대로 복구한다', () => {
+    const watched = { ...createReleaseState(NOW), prologueDone: true };
+    expect(restoreReleaseState(JSON.stringify(watched), NOW).prologueDone).toBe(true);
+    // 기록이 false면 플레이 흔적이 있어도 그대로 둔다(설정의 데이터 초기화 직후 등)
+    const notWatched = { ...createReleaseState(NOW), prologueDone: false, tutorialDone: true };
+    expect(restoreReleaseState(JSON.stringify(notWatched), NOW).prologueDone).toBe(false);
+  });
+
+  it('프롤로그 도입 전 저장은 플레이한 흔적이 있으면 본 것으로, 없으면 아직 안 본 것으로 둔다', () => {
+    const { prologueDone: _omit, ...legacyFresh } = createReleaseState(NOW);
+    expect(restoreReleaseState(JSON.stringify(legacyFresh), NOW).prologueDone).toBe(false);
+    expect(restoreReleaseState(JSON.stringify({ ...legacyFresh, tutorialDone: true }), NOW).prologueDone).toBe(true);
+    expect(restoreReleaseState(JSON.stringify({ ...legacyFresh, completedOrders: 2 }), NOW).prologueDone).toBe(true);
+    const v3 = { version: 3, coins: 4200, completedOrders: 7, orderIndex: 1, tutorialDone: true, bgm: true, sfx: true, vibration: false, dayNumber: 8, lastRaceDay: 5, raceEntryDay: null };
+    expect(restoreReleaseState(JSON.stringify(v3), NOW).prologueDone).toBe(true);
+  });
+});

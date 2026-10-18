@@ -10,6 +10,7 @@ const PURE_MODULES = [
   'src/game/release/race-progress.ts',
   'src/game/release/race-rider-motion.ts',
   'src/game/release/race-rider-sprite.ts',
+  'src/game/release/prologue-story.ts',
 ];
 
 describe('Phaser 비의존 모듈 경계', () => {

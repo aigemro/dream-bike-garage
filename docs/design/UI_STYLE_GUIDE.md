@@ -13,6 +13,7 @@
 | 화면 (`ReleaseScreen`) | 파일 | 비고 |
 |---|---|---|
 | 타이틀·로딩 `title` | `src/game/release/title-loading-design.ts` | 앱인토스 대표 이미지 후보 구도 |
+| 프롤로그 `prologue` | `src/game/release/prologue-design.ts` | 첫 시작 1회(설정에서 다시 보기). 거실 → 삼촌의 결승 중계 → 시상대 → 목표 카드. [PROLOGUE.md](../game-design/PROLOGUE.md) |
 | 홈 `home` | `src/game/release/home-design-prototype.ts` | `warm-pixel-garage` 모드만 출시 사용. **HUD 기준 화면** |
 | 첫 플레이 안내 `guide` | `src/game/release/guide-overlay-design.ts` | 작업대 정적 모사 위 말풍선 오버레이 |
 | 머지 작업대 `game` | `src/game/release/merge-workbench-screen.ts` | HUD는 작업대 역할에 맞춘 변형(DAY/주문/오늘 수입) |

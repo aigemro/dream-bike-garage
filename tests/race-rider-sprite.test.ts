@@ -1,6 +1,5 @@
 // 레이스 라이더 스프라이트 빌더 단위 테스트: 리그 정합·IK 도달·잉크 정책·시트 베이크 결정성
 import { describe, expect, it } from 'vitest';
-import type { PixelCharacterRole } from '../src/game/release/art-character-pixel';
 import { bikeRig, buildBikeGrid, makeWarmColorway, type BikeCategory } from '../src/game/release/bike-pixel-sprite';
 import { countCells, gridBounds } from '../src/game/release/pixel-raster';
 import { CRANK_PHASES, GLINT_PHASES, RIDER_POSTURES, WHEEL_PHASES, phaseAngle } from '../src/game/release/race-rider-motion';
@@ -20,13 +19,16 @@ import {
   buildRiderLayerGrids,
   headNeckColumn,
   riderFrameName,
+  riderPaletteFor,
   riderPose,
   wheelFrameName,
+  RIDER_PALETTES,
   type RiderCell,
+  type RiderRole,
 } from '../src/game/release/race-rider-sprite';
 
 const CATEGORIES: BikeCategory[] = ['road', 'mtb', 'gravel', 'city', 'minivelo'];
-const ROLES: PixelCharacterRole[] = ['정비사', '점장', '고객'];
+const ROLES: RiderRole[] = ['정비사', '점장', '고객', '삼촌', '선수'];
 const deg = (rad: number) => (rad * 180) / Math.PI;
 
 describe('리그·IK 도달성', () => {
@@ -241,6 +243,44 @@ describe('스프라이트시트 베이크', () => {
     expect(manager.frameHeight).toBe(sheet.frameHeight);
     expect(manager.frames).toEqual(sheet.frames);
     expect(Buffer.from(manager.data).equals(Buffer.from(sheet.data))).toBe(false);
+  });
+});
+
+describe('프로 선수 레이서(프롤로그)', () => {
+  const SKIN = 0xeeb07c;
+
+  it('팀 색을 주면 저지·소매·헬멧이 팀 색으로 바뀌고, 없으면 역할 팔레트를 그대로 쓴다', () => {
+    expect(riderPaletteFor('선수')).toBe(RIDER_PALETTES.선수);
+    const team = riderPaletteFor('선수', 0x5e9a67);
+    expect(team.jersey).toBe(0x5e9a67);
+    expect(team.sleeve).toBe(0x5e9a67);
+    expect(team.headLegend.Y).toBe(0x5e9a67);
+    expect(team.jerseyShade).not.toBe(team.jersey);
+    // 헬멧이 없는 머리 맵(정비사)은 머리 색을 건드리지 않는다
+    expect(riderPaletteFor('정비사', 0x5e9a67).headLegend).toEqual(RIDER_PALETTES.정비사.headLegend);
+  });
+
+  it('삼촌·선수는 빕 숏 차림이라 정강이가 맨다리(피부색)이고, 기존 역할은 바지 색 그대로다', () => {
+    (['삼촌', '선수'] as const).forEach((role) => {
+      const { near } = buildRiderLayerGrids('road', role, 'seated', 0);
+      expect(countCells(near, (cell) => cell.part === 'shin' && cell.color === SKIN), role).toBeGreaterThan(0);
+      expect(countCells(near, (cell) => cell.part === 'thigh' && cell.color === SKIN), role).toBe(0);
+    });
+    const mechanic = buildRiderLayerGrids('road', '정비사', 'seated', 0);
+    expect(countCells(mechanic.near, (cell) => cell.part === 'shin' && cell.color === SKIN)).toBe(0);
+  });
+
+  it('팀이 다른 선수끼리는 프레임 레이아웃이 같고 색만 다르다', () => {
+    const blue = bakeRiderSheet('road', '선수', 0x4e8092);
+    const gold = bakeRiderSheet('road', '선수', 0xf4b84a);
+    expect(gold.frames).toEqual(blue.frames);
+    expect(Buffer.from(gold.data).equals(Buffer.from(blue.data))).toBe(false);
+  });
+
+  it('삼촌 헬멧은 금색 바탕에 팀 빨간 줄이 있다', () => {
+    const { near } = buildRiderLayerGrids('road', '삼촌', 'seated', 0);
+    expect(countCells(near, (cell) => cell.part === 'head' && cell.color === 0xf4b84a)).toBeGreaterThan(10);
+    expect(countCells(near, (cell) => cell.part === 'head' && cell.color === 0xc95746)).toBeGreaterThan(3);
   });
 });
 
