@@ -18,7 +18,8 @@ export function isRaceDay(day: number, meta = RIVERSIDE_RACE) { return day > 0 &
 export function nextRaceDay(day: number, meta = RIVERSIDE_RACE) { const base = Math.max(1, day); return Math.ceil(base / meta.heldEveryDays) * meta.heldEveryDays; }
 export function daysUntilRace(day: number, meta = RIVERSIDE_RACE) { return nextRaceDay(day, meta) - Math.max(1, day); }
 export function applyRaceEntry(coins: number, meta = RIVERSIDE_RACE) { return coins < meta.entryFee ? { ok: false as const, reason: 'coins' as const, coins, entryFee: meta.entryFee } : { ok: true as const, coins: coins - meta.entryFee, entryFee: meta.entryFee }; }
-function randomFor(seed: number) { let state = seed >>> 0; return () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+/** 시드 고정 난수(mulberry32). 같은 시드는 같은 레이스를 만듭니다. */
+export function randomFor(seed: number) { let state = seed >>> 0; return () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 function speed(stats: BikeStats) { return 17 + stats.성능 * 2.5 + dreamStage(stats) * 1.5; }
 type Npc = { name: string; category: BikeCategory; frameColor: number };
 const NPCS: Npc[] = [

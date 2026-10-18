@@ -1,6 +1,6 @@
 // 설정 화면(출시 적용): 따뜻한 픽셀 공방 관리 서랍형 (390×810)
 // 공방 서랍장을 여는 메타포로 배경음악·효과음·진동 토글(나무 스위치),
-// 튜토리얼 다시 보기, 2단계 확인이 있는 데이터 초기화, 버전 표기를 담는다.
+// 튜토리얼·프롤로그 다시 보기, 2단계 확인이 있는 데이터 초기화, 버전 표기를 담는다.
 // 계정·로그인·결제 설정은 MVP 밖(#6 담당)이라 다루지 않는다.
 import Phaser from 'phaser';
 import { drawFieldCharacter } from './art-character-pixel';
@@ -20,11 +20,13 @@ const DARK_BROWN = 0x6e3f28;
 
 // 서랍장 세로 배치: 제목 띠 아래 서랍 3개를 같은 간격으로 쌓고, 캐릭터는 서랍장 밖 바닥에 세운다
 const CHEST_TOP = 84;
-const CHEST_BOTTOM = 602;
+const CHEST_BOTTOM = 654;
 const SOUND_LABEL_Y = 134;
 const SOUND_PANEL_HEIGHT = 200;
 const HELP_LABEL_Y = 360;
-const DATA_LABEL_Y = 470;
+// 도움말 서랍은 버튼 2개(튜토리얼·프롤로그 다시 보기, 44px + 간격 8px)를 담아 한 칸 더 깊습니다
+const HELP_PANEL_HEIGHT = 136;
+const DATA_LABEL_Y = 522;
 const SMALL_PANEL_HEIGHT = 84;
 // 바닥 장면: 말풍선(안내 문구)은 왼쪽, 정비사는 오른쪽에 서서 서로 겹치지 않게 한다
 const BUBBLE_X = 156;
@@ -40,6 +42,7 @@ export type SettingsDrawerHooks = {
   toggles?: Partial<Record<ToggleKey, boolean>>;
   onHome?: () => void;
   onTutorial?: () => void;
+  onPrologue?: () => void;
   onReset?: () => void;
   onToggle?: (key: ToggleKey, value: boolean) => void;
   onSfx?: (event: 'tap' | 'error') => void;
@@ -83,13 +86,23 @@ class SettingsDrawerScene extends Phaser.Scene {
     this.drawToggleRow('vibration', SOUND_LABEL_Y + 164, '진동', '머지·장착 순간의 짧은 진동');
 
     // 도움말 서랍
-    this.drawDrawer(HELP_LABEL_Y, SMALL_PANEL_HEIGHT, '도움말 서랍 · HELP');
+    this.drawDrawer(HELP_LABEL_Y, HELP_PANEL_HEIGHT, '도움말 서랍 · HELP');
     const tutorialY = HELP_LABEL_Y + 48;
     const tutorialButton = this.add.rectangle(195, tutorialY, 318, 44, GOLD).setStrokeStyle(3, BORDER).setInteractive({ useHandCursor: true }).setDepth(3);
     this.add.text(48, tutorialY - 11, '튜토리얼 다시 보기', { fontFamily: FONT, fontSize: '12px', color: INK, fontStyle: 'bold' }).setDepth(4);
     this.add.text(330, tutorialY, '↺', { fontFamily: FONT, fontSize: '16px', color: MUTED, fontStyle: 'bold' }).setOrigin(0.5).setDepth(4);
     this.add.text(48, tutorialY + 7, '첫 주문 안내를 처음부터 다시 표시합니다', { fontFamily: FONT, fontSize: '10px', color: MUTED }).setDepth(4);
     tutorialButton.on('pointerdown', () => { this.hooks.onSfx?.('tap'); this.hooks.onTutorial?.(); this.showToast('다음 작업 화면부터 첫 플레이 안내를 다시 표시합니다.'); });
+    const prologueY = tutorialY + 52;
+    const prologueButton = this.add.rectangle(195, prologueY, 318, 44, GOLD).setStrokeStyle(3, BORDER).setInteractive({ useHandCursor: true }).setDepth(3);
+    this.add.text(48, prologueY - 11, '프롤로그 다시 보기', { fontFamily: FONT, fontSize: '12px', color: INK, fontStyle: 'bold' }).setDepth(4);
+    this.add.text(330, prologueY, '▶', { fontFamily: FONT, fontSize: '14px', color: MUTED, fontStyle: 'bold' }).setOrigin(0.5).setDepth(4);
+    this.add.text(48, prologueY + 7, '삼촌의 결승 레이스를 처음부터 다시 봅니다', { fontFamily: FONT, fontSize: '10px', color: MUTED }).setDepth(4);
+    prologueButton.on('pointerdown', () => {
+      this.hooks.onSfx?.('tap');
+      if (this.hooks.onPrologue) this.hooks.onPrologue();
+      else this.showToast('프롤로그는 처음 시작 화면에서 볼 수 있어요.');
+    });
 
     // 데이터 서랍: 초기화는 위험 동작이라 색과 문구로 구분하고 2단계 확인을 거친다
     this.drawDrawer(DATA_LABEL_Y, SMALL_PANEL_HEIGHT, '기록 서랍 · DATA');

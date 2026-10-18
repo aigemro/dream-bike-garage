@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import type { PixelCharacterRole } from './art-character-pixel';
 import { bikeRig, makeWarmColorway, type BikeCategory } from './bike-pixel-sprite';
 import {
   crankPhaseIndex,
@@ -20,6 +19,7 @@ import {
   wheelSheetKey,
   type BodyImage,
   type RgbaSheet,
+  type RiderRole,
   type RiderSheet,
   type WheelSheet,
 } from './race-rider-sprite';
@@ -51,10 +51,11 @@ export function registerSheetTexture(scene: Phaser.Scene, key: string, sheet: Rg
   return texture;
 }
 
-export type RacerSpec = { category: BikeCategory; role: PixelCharacterRole; frameColor: number };
+/** 레이서 한 명의 외형: 자전거 카테고리·역할·프레임 색, 프로 선수면 팀 색(저지·헬멧) */
+export type RacerSpec = { category: BikeCategory; role: RiderRole; frameColor: number; teamColor?: number };
 
 /**
- * 씬 단위 텍스처 캐시. 라이더 시트는 (카테고리, 역할), 바퀴 시트는 바퀴 스타일, 몸체는 (카테고리, 프레임 색)으로 캐시합니다.
+ * 씬 단위 텍스처 캐시. 라이더 시트는 (카테고리, 역할, 팀 색), 바퀴 시트는 바퀴 스타일, 몸체는 (카테고리, 프레임 색)으로 캐시합니다.
  * 참가 화면·레이스 시작 시 prewarm으로 필요한 조합을 먼저 굽습니다.
  */
 export class RaceRiderTextures {
@@ -65,15 +66,15 @@ export class RaceRiderTextures {
 
   constructor(private readonly scene: Phaser.Scene) {}
 
-  riderSheetKey(category: BikeCategory, role: PixelCharacterRole): string {
-    return `race-rider-${category}-${role}`;
+  riderSheetKey(category: BikeCategory, role: RiderRole, teamColor?: number): string {
+    return `race-rider-${category}-${role}${teamColor === undefined ? '' : `-${teamColor.toString(16)}`}`;
   }
 
-  riderSheet(category: BikeCategory, role: PixelCharacterRole): { key: string; sheet: RiderSheet } {
-    const key = this.riderSheetKey(category, role);
+  riderSheet(category: BikeCategory, role: RiderRole, teamColor?: number): { key: string; sheet: RiderSheet } {
+    const key = this.riderSheetKey(category, role, teamColor);
     let sheet = this.riderSheets.get(key);
     if (!sheet) {
-      sheet = bakeRiderSheet(category, role);
+      sheet = bakeRiderSheet(category, role, teamColor);
       this.riderSheets.set(key, sheet);
     }
     registerSheetTexture(this.scene, key, sheet);
@@ -113,7 +114,7 @@ export class RaceRiderTextures {
   prewarm(specs: RacerSpec[]): void {
     this.shadow();
     specs.forEach((spec) => {
-      this.riderSheet(spec.category, spec.role);
+      this.riderSheet(spec.category, spec.role, spec.teamColor);
       this.wheelSheet(spec.category);
       this.body(spec.category, spec.frameColor);
     });
@@ -144,7 +145,7 @@ export class RacerView {
   constructor(scene: Phaser.Scene, textures: RaceRiderTextures, readonly spec: RacerSpec) {
     const rig = bikeRig(spec.category);
     const cell = RIDER_CELL;
-    const rider = textures.riderSheet(spec.category, spec.role);
+    const rider = textures.riderSheet(spec.category, spec.role, spec.teamColor);
     const wheel = textures.wheelSheet(spec.category);
     const body = textures.body(spec.category, spec.frameColor);
     const shadow = textures.shadow();

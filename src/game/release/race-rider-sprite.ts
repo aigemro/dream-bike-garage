@@ -93,11 +93,19 @@ export type RiderCell = { color: number; part: RiderPart };
 export type RiderGrid = PixelGrid<RiderCell>;
 
 // ─── 역할별 팔레트 (art-character-pixel 필드 스프라이트 팔레트 발췌) ────
+/**
+ * 레이서 역할: 캐릭터 역할 + 프롤로그 프로 대회의 일반 선수.
+ * '선수'는 레이스 전용이라 필드·초상화 스프라이트가 없고, 팀 색(teamColor)으로 저지·헬멧을 바꿔 씁니다.
+ */
+export type RiderRole = PixelCharacterRole | '선수';
+
 export type RiderPalette = {
   jersey: number; jerseyShade: number; jerseyLight: number;
   /** 팔 색(점장은 조끼 아래 크림 셔츠) */
   sleeve: number;
   pants: number; pantsShade: number; pantsLight: number;
+  /** 정강이 색(빕 숏 차림의 선수는 맨다리 피부색). 없으면 바지 색 */
+  shin?: number; shinShade?: number;
   shoe: number;
   /** 옆모습 머리 맵 레전드 */
   headLegend: Record<string, number>;
@@ -107,7 +115,7 @@ export type RiderPalette = {
 
 const BASE_HEAD_LEGEND: Record<string, number> = { K: INK, S: SKIN, T: SKIN_SHADE, B: 0xe58a66, E: 0x2c1c26, W: 0xfff8df };
 
-export const RIDER_PALETTES: Record<PixelCharacterRole, RiderPalette> = {
+export const RIDER_PALETTES: Record<RiderRole, RiderPalette> = {
   정비사: {
     jersey: 0x5e9a67, jerseyShade: 0x477a50, jerseyLight: shadeColor(0x5e9a67, 1.18), sleeve: 0x5e9a67,
     pants: 0x6b4534, pantsShade: 0x53341f, pantsLight: shadeColor(0x6b4534, 1.18), shoe: 0x352c3c,
@@ -124,11 +132,41 @@ export const RIDER_PALETTES: Record<PixelCharacterRole, RiderPalette> = {
     pants: 0x3f4a63, pantsShade: 0x2e3850, pantsLight: shadeColor(0x3f4a63, 1.2), shoe: 0x352c3c,
     headLegend: { ...BASE_HEAD_LEGEND, R: 0xc95746, r: 0xa63f31, H: 0x4f3527 },
   },
+  // 삼촌(프로 선수): 팀 리버 스타의 빨간 저지, 검정 빕 숏 + 맨다리, 크림 슈즈, 금색 헬멧(빨간 줄)·선글라스·턱수염
+  삼촌: {
+    jersey: 0xc95746, jerseyShade: 0xa63f31, jerseyLight: shadeColor(0xc95746, 1.18), sleeve: 0xc95746,
+    pants: 0x352c3c, pantsShade: 0x2c1c26, pantsLight: 0x4c4258, shin: SKIN, shinShade: SKIN_SHADE, shoe: CREAM,
+    headLegend: { ...BASE_HEAD_LEGEND, Y: GOLD, y: shadeColor(GOLD, 0.8), R: 0xc95746, H: 0x4f3527, Z: 0x77492f },
+  },
+  // 일반 프로 선수: 팀 색 저지·헬멧(teamColor로 덮어씀), 검정 빕 숏 + 맨다리, 짙은 슈즈, 선글라스
+  선수: {
+    jersey: 0x4e8092, jerseyShade: 0x3a6274, jerseyLight: shadeColor(0x4e8092, 1.18), sleeve: 0x4e8092,
+    pants: 0x352c3c, pantsShade: 0x2c1c26, pantsLight: 0x4c4258, shin: SKIN, shinShade: SKIN_SHADE, shoe: 0x352c3c,
+    headLegend: { ...BASE_HEAD_LEGEND, Y: 0x4e8092, y: 0x3a6274, H: 0x4f3527 },
+  },
 };
+
+/**
+ * 역할 팔레트에 팀 색을 입힙니다. 팀 색이 없으면 역할 팔레트를 그대로 돌려줍니다.
+ * 저지·소매는 팀 색, 음영·하이라이트는 같은 색의 명도만 바꿔 만들고, 헬멧(Y)이 있는 머리 맵이면 헬멧도 팀 색으로 칠합니다.
+ */
+export function riderPaletteFor(role: RiderRole, teamColor?: number): RiderPalette {
+  const base = RIDER_PALETTES[role];
+  if (teamColor === undefined) return base;
+  const helmet: Record<string, number> = base.headLegend.Y === undefined ? {} : { Y: teamColor, y: shadeColor(teamColor, 0.8) };
+  return {
+    ...base,
+    jersey: teamColor,
+    jerseyShade: shadeColor(teamColor, 0.78),
+    jerseyLight: shadeColor(teamColor, 1.18),
+    sleeve: teamColor,
+    headLegend: { ...base.headLegend, ...helmet },
+  };
+}
 
 // ─── 옆모습 머리 맵 (12×12, 오른쪽을 향함, 맨 아랫줄에 목) ───────────────
 // 게임 캐릭터의 정체성 요소를 실루엣으로 유지합니다: 정비사 크림 반다나, 점장 회갈색 머리·콧수염, 고객 빨간 캡 챙.
-export const RIDER_HEAD_MAPS: Record<PixelCharacterRole, string[]> = {
+export const RIDER_HEAD_MAPS: Record<RiderRole, string[]> = {
   // 정비사: 크림 반다나 2행 띠 + 뒤통수 매듭 꼬리, 갈색 머리 하이라이트
   정비사: [
     '...KKKKKK...',
@@ -173,6 +211,36 @@ export const RIDER_HEAD_MAPS: Record<PixelCharacterRole, string[]> = {
     '.KSSSSSKK...',
     '..KSSSSK....',
     '...KTSSK....',
+  ],
+  // 삼촌: 금색 로드 헬멧에 팀 빨간 줄, 뒤로 빠진 헬멧 꼬리, 선글라스(E·W), 턱선 수염(Z)
+  삼촌: [
+    '...KKKKKK...',
+    '..KYYYYYYK..',
+    '.KYRRRRRRYK.',
+    'KYYYYYYYYYYK',
+    'KyYYYYYYYYyK',
+    '.KKHSSSSSSKK',
+    '..KHSSSEEWSK',
+    '..KHSSSSSSSK',
+    '..KZSSSBBSTK',
+    '...KZZZZZKK.',
+    '....KSSSTK..',
+    '....KSSTK...',
+  ],
+  // 일반 선수: 팀 색 로드 헬멧(통풍구 음영 y), 선글라스, 짧은 뒷머리
+  선수: [
+    '...KKKKKK...',
+    '..KYYYYYYK..',
+    '.KYyYYyYYYK.',
+    'KYYYYYYYYYYK',
+    'KyYYYYYYYYyK',
+    '.KKHSSSSSSKK',
+    '..KHSSSEEWSK',
+    '..KHSSSSSSSK',
+    '..KHSSSBBSTK',
+    '...KSSSSSKK.',
+    '....KSSSTK..',
+    '....KSSTK...',
   ],
 };
 
@@ -317,7 +385,7 @@ function plotArm(grid: RiderGrid, shoulder: Vec2, elbow: Vec2, hand: Vec2, color
   capsule(grid, elbow, hand, RIDER_BODY.foreArmHalfWidth, color, 'arm');
 }
 
-function plotHead(grid: RiderGrid, anchor: Vec2, role: PixelCharacterRole, legend: Record<string, number>) {
+function plotHead(grid: RiderGrid, anchor: Vec2, role: RiderRole, legend: Record<string, number>) {
   const rows = RIDER_HEAD_MAPS[role];
   const neckCol = headNeckColumn(rows);
   const originX = Math.round(anchor.x) - neckCol;
@@ -348,9 +416,12 @@ export type RiderFrameGrids = { far: RiderGrid; near: RiderGrid; pose: RiderPose
 /**
  * 한 (카테고리, 역할, 자세, 크랭크 위상)의 far/near 레이어 그리드를 만듭니다.
  * far: 잉크 없음·어두운 톤. near: 플롯 순서 고정 후 잉크 외곽선 1회.
+ * teamColor를 주면 저지·헬멧을 팀 색으로 칠합니다(riderPaletteFor).
  */
-export function buildRiderLayerGrids(category: BikeCategory, role: PixelCharacterRole, posture: RiderPosture, phase: number): RiderFrameGrids {
-  const palette = RIDER_PALETTES[role];
+export function buildRiderLayerGrids(category: BikeCategory, role: RiderRole, posture: RiderPosture, phase: number, teamColor?: number): RiderFrameGrids {
+  const palette = riderPaletteFor(role, teamColor);
+  const shin = palette.shin ?? palette.pants;
+  const shinShade = palette.shinShade ?? palette.pantsShade;
   const angle = phase * Math.PI * 2 / CRANK_PHASES;
   const pose = riderPose(category, posture, angle);
   const far = makeRiderGrid();
@@ -359,9 +430,9 @@ export function buildRiderLayerGrids(category: BikeCategory, role: PixelCharacte
 
   // ─ far: 원경 크랭크 → 원경 다리 → 원경 신발 → 원경 팔
   plotCrank(far, pose.bb, pose.far.pedal, CRANK_METAL_FAR, shadeColor(PEDAL_PLATE, FAR_TONE));
-  plotLeg(far, pose.hip, pose.far, { thigh: tone(palette.pants), shin: tone(palette.pants) });
+  plotLeg(far, pose.hip, pose.far, { thigh: tone(palette.pants), shin: tone(shin) });
   applyPartShading(far, 'thigh', null, cellOf(tone(palette.pantsShade), 'thighShade'));
-  applyPartShading(far, 'shin', null, cellOf(tone(palette.pantsShade), 'shinShade'));
+  applyPartShading(far, 'shin', null, cellOf(tone(shinShade), 'shinShade'));
   plotShoe(far, pose.far.pedal, tone(palette.shoe));
   const farShoulder = { x: pose.shoulder.x - 1, y: pose.shoulder.y + 1 };
   const farArm = solveTwoBone(farShoulder, pose.hand, RIDER_BODY.upperArm, RIDER_BODY.foreArm, 'down');
@@ -369,9 +440,9 @@ export function buildRiderLayerGrids(category: BikeCategory, role: PixelCharacte
 
   // ─ near: 근경 크랭크 → 근경 다리 → 신발 → 몸통 → 배번 → 목 → 머리 → 근경 팔 → 손 → 허브 캡
   plotCrank(near, pose.bb, pose.near.pedal, CRANK_METAL, PEDAL_PLATE);
-  plotLeg(near, pose.hip, pose.near, { thigh: palette.pants, shin: palette.pants });
+  plotLeg(near, pose.hip, pose.near, { thigh: palette.pants, shin });
   applyPartShading(near, 'thigh', cellOf(palette.pantsLight, 'thighLight'), cellOf(palette.pantsShade, 'thighShade'));
-  applyPartShading(near, 'shin', null, cellOf(palette.pantsShade, 'shinShade'));
+  applyPartShading(near, 'shin', null, cellOf(shinShade, 'shinShade'));
   plotShoe(near, pose.near.pedal, palette.shoe);
   capsule(near, pose.hip, pose.shoulder, RIDER_BODY.torsoHalfWidth, palette.jersey, 'torso');
   applyPartShading(near, 'torso', cellOf(palette.jerseyLight, 'torsoLight'), cellOf(palette.jerseyShade, 'torsoShade'));
@@ -428,16 +499,16 @@ function cropGrid<T>(grid: PixelGrid<T>, x: number, y: number, width: number, he
 }
 
 /**
- * (카테고리, 역할)의 모든 자세×위상×레이어 프레임을 한 시트로 굽습니다.
+ * (카테고리, 역할, 팀 색)의 모든 자세×위상×레이어 프레임을 한 시트로 굽습니다.
  * 프레임 크기는 전 프레임의 합집합 경계 상자로 고정해 setFrame만으로 교체할 수 있게 합니다.
  */
-export function bakeRiderSheet(category: BikeCategory, role: PixelCharacterRole): RiderSheet {
+export function bakeRiderSheet(category: BikeCategory, role: RiderRole, teamColor?: number): RiderSheet {
   const rig = bikeRig(category);
   const built: Array<{ posture: RiderPosture; phase: number; grids: RiderFrameGrids }> = [];
   let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
   RIDER_POSTURES.forEach((posture) => {
     for (let phase = 0; phase < CRANK_PHASES; phase += 1) {
-      const grids = buildRiderLayerGrids(category, role, posture, phase);
+      const grids = buildRiderLayerGrids(category, role, posture, phase, teamColor);
       built.push({ posture, phase, grids });
       [grids.far, grids.near].forEach((grid) => {
         const bounds = gridBounds(grid);

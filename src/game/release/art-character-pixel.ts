@@ -7,7 +7,7 @@ import type Phaser from 'phaser';
 // 2톤 음영, 감정별 눈썹·눈·입 변화를 표현합니다.
 // 홈 화면 A안의 크림·브라운·골드·그린 팔레트와 굵은 잉크 외곽선은 그대로 유지합니다.
 
-export type PixelCharacterRole = '정비사' | '점장' | '고객';
+export type PixelCharacterRole = '정비사' | '점장' | '고객' | '삼촌';
 export type PixelCharacterEmotion = '기본' | '기쁨' | '고민';
 
 type Legend = Record<string, number>;
@@ -56,6 +56,19 @@ const CUSTOMER_LEGEND: Legend = {
   A: 0xf9e6b3, a: 0xe3bd74, // 주문 카드 + 음영
   J: 0x3f4a63, j: 0x2e3850, // 청바지 + 음영
   D: 0x352c3c, // 운동화 어퍼
+};
+
+// 삼촌(프로 선수): 짙은 짧은 머리 + 턱수염, 팀 리버 스타의 빨간 저지(크림 지퍼 띠·금색 가슴 띠),
+// 검정 빕 숏, 크림 양말 + 사이클 슈즈. 프롤로그 대회 시상대·인터뷰에서 헬멧을 벗은 모습입니다.
+const UNCLE_LEGEND: Legend = {
+  ...BASE_LEGEND,
+  H: 0x4f3527, h: 0x77492f, // 머리 + 하이라이트
+  Z: 0x77492f, // 턱수염
+  R: 0xc95746, r: 0xa63f31, // 팀 저지 + 음영
+  N: 0xfff1c6, // 지퍼 띠·양말
+  G: 0xf4b84a, // 가슴 띠
+  P: 0x352c3c, p: 0x4c4258, // 빕 숏 + 하이라이트
+  D: 0x352c3c, d: 0x4c4258, // 사이클 슈즈 + 하이라이트
 };
 
 // ─── 필드 스프라이트 (약 28×38, 3등신) ───────────────────────────────
@@ -180,6 +193,47 @@ const CUSTOMER_FIELD = [
   '......KKKKKKK..KKKKKKK......',
 ];
 
+const UNCLE_FIELD = [
+  '...........KKKKKK...........',
+  '.........KKHHHHHHKK.........',
+  '........KHHhHHHhHHHK........',
+  '.......KHHhHHHHHHhHHK.......',
+  '.......KHHHHHHHHHHHHK.......',
+  '.......KHHSSSSSSSSHHK.......',
+  '.......KHSSSSSSSSSSHK.......',
+  '.......KSKKSSSSSSKKSK.......',
+  '.......KSEESSSSSSEESK.......',
+  '.......KSEWSSSSSSEWSK.......',
+  '.......KBBSSSTTSSSBBK.......',
+  '.......KZSSSSKKSSSSZK.......',
+  '........KZZSSSSSSZZK........',
+  '.........KZZZZZZZZK.........',
+  '..........KKTSSTKK..........',
+  '......KKRRRRKNNKRRRRKK......',
+  '.....KRRRRRRKNNKRRRRRRK.....',
+  '.....KRRRRRRRNNRRRRRRRK.....',
+  '....KRKRRRRRRNNRRRRRRKRK....',
+  '....KRKRGGGGRNNRGGGGRKRK....',
+  '....KRKRRRRRRNNRRRRRRKRK....',
+  '....KRKRRrRRRNNRRRrRRKRK....',
+  '....KSKRRRRRRNNRRRRRRKSK....',
+  '....KSKRRrRRRNNRRRrRRKSK....',
+  '......KRRRRRRRRRRRRRRK......',
+  '......KPPPPPPPPPPPPPPK......',
+  '......KPpPPPPPPPPPPpPK......',
+  '.......KPPPPK..KPPPPK.......',
+  '.......KPpPPK..KPPpPK.......',
+  '.......KSSSSK..KSSSSK.......',
+  '.......KSSSSK..KSSSSK.......',
+  '.......KSTSSK..KSSTSK.......',
+  '.......KSSSSK..KSSSSK.......',
+  '.......KSSSSK..KSSSSK.......',
+  '.......KNNNNK..KNNNNK.......',
+  '.......KDDDDK..KDDDDK.......',
+  '......KDdDDDK..KDDDdDK......',
+  '......KKKKKKK..KKKKKKK......',
+];
+
 // ─── 초상화 스프라이트 (24×26, 감정 부위는 비워 두고 오버레이로 그림) ──
 
 const MECHANIC_PORTRAIT = [
@@ -269,23 +323,61 @@ const CUSTOMER_PORTRAIT = [
   '.KCCCCCCCcKWWKcCCCCCCCK.',
 ];
 
+// 삼촌 초상화: 짧은 머리, 턱선을 따라 난 수염(입 오버레이 행 18은 비워 둠), 팀 저지 칼라
+const UNCLE_PORTRAIT = [
+  '........KKKKKKKK........',
+  '......KKHHHHHHHHKK......',
+  '.....KHHHhHHHhHHHHK.....',
+  '....KHHhHHHHHHHHhHHK....',
+  '....KHHHHHHHHHHHHHHK....',
+  '....KHHHHHHHHHHHHHHK....',
+  '....KHHSSSSSSSSSSHHK....',
+  '....KHSSSSSSSSSSSSHK....',
+  '...KSSSSSSSSSSSSSSSSK...',
+  '...KSSSSSSSSSSSSSSSSK...',
+  '...KSSSSSSSSSSSSSSSSK...',
+  '...KSSSSSSSSSSSSSSSSK...',
+  '..KSSSSSSSSSSSSSSSSSSK..',
+  '..KTSSSSSSSSSSSSSSSSTK..',
+  '...KSSSSSSSSSSSSSSSSK...',
+  '...KSSSSSSSTTSSSSSSSK...',
+  '...KSBBSSSSSSSSSSBBSK...',
+  '...KZSSSSSSSSSSSSSSZK...',
+  '...KZSSSSSSSSSSSSSSZK...',
+  '....KZZSSSSSSSSSSZZK....',
+  '.....KZZZZSSSSZZZZK.....',
+  '......KKKZZZZZZKKK......',
+  '....KKRRKKSSSSKKRRKK....',
+  '..KKRRRRRKNNNNKRRRRRKK..',
+  '.KRRRRRRRRKNNKRRRRRRRRK.',
+  '.KRRGGGRRRKNNKRRRGGGRRK.',
+];
+
 const FIELD_MAPS: Record<PixelCharacterRole, string[]> = {
   정비사: MECHANIC_FIELD,
   점장: MANAGER_FIELD,
   고객: CUSTOMER_FIELD,
+  삼촌: UNCLE_FIELD,
 };
 
 const PORTRAIT_MAPS: Record<PixelCharacterRole, string[]> = {
   정비사: MECHANIC_PORTRAIT,
   점장: MANAGER_PORTRAIT,
   고객: CUSTOMER_PORTRAIT,
+  삼촌: UNCLE_PORTRAIT,
 };
 
 const LEGENDS: Record<PixelCharacterRole, Legend> = {
   정비사: MECHANIC_LEGEND,
   점장: MANAGER_LEGEND,
   고객: CUSTOMER_LEGEND,
+  삼촌: UNCLE_LEGEND,
 };
+
+/** 필드·초상화 문자 지도(테스트·미리보기용 읽기 전용 접근) */
+export function characterPixelMaps(role: PixelCharacterRole) {
+  return { field: FIELD_MAPS[role], portrait: PORTRAIT_MAPS[role], legend: LEGENDS[role] };
+}
 
 type PixelAnchor = 'center' | 'bottom';
 

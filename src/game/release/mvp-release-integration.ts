@@ -46,6 +46,7 @@ import { SaveStore } from '../../platform/save-store';
 import { bindSafeAreaCss } from '../../platform/safe-area-css';
 import { showExitConfirm } from '../../ui/exit-confirm';
 import { startRaceCinematicBroadcast } from './race-cinematic-broadcast';
+import { startPrologue } from './prologue-design';
 import { RIVERSIDE_ENDURANCE_RACE, daysUntilRace, isRaceDay } from './race-progress';
 import { bikeCategoryFromKorean } from './bike-pixel-sprite';
 import {
@@ -61,7 +62,7 @@ import {
   type DayPauseReason,
 } from '../../domain/day-session';
 
-type ReleaseScreen = 'title' | 'home' | 'guide' | 'game' | 'reward' | 'catalog' | 'showcase' | 'dream' | 'profile' | 'settings' | 'race';
+type ReleaseScreen = 'title' | 'prologue' | 'home' | 'guide' | 'game' | 'reward' | 'catalog' | 'showcase' | 'dream' | 'profile' | 'settings' | 'race';
 // 오늘 납품한 주문의 이해도 결과 (하루 정산 화면 표시용 · 저장하지 않음)
 type DayDelivery = OrderDeliveryResult & { orderIndex: number };
 
@@ -163,7 +164,15 @@ export class MvpReleaseIntegrationController {
 
     if (screen === 'title') {
       this.game = startTitleLoadingPrototype(this.stageId, {
-        onEnterHome: () => this.show('home'),
+        // 처음 시작하면 홈 대신 프롤로그(삼촌의 프로 대회)부터 보여 줍니다.
+        onEnterHome: () => this.show(this.state.prologueDone ? 'home' : 'prologue'),
+        onSfx: (event) => this.play(event),
+      });
+      return;
+    }
+    if (screen === 'prologue') {
+      this.game = startPrologue(this.stageId, {
+        onFinish: () => this.finishPrologue(),
         onSfx: (event) => this.play(event),
       });
       return;
@@ -354,6 +363,7 @@ export class MvpReleaseIntegrationController {
       toggles: { bgm: this.state.bgm, sfx: this.state.sfx, vibration: this.state.vibration },
       onHome: () => this.show('home'),
       onTutorial: () => { this.state.tutorialDone = false; this.saveState(); },
+      onPrologue: () => this.show('prologue'),
       onReset: () => {
         this.clearDayTimers();
         this.state = createReleaseState();
@@ -371,6 +381,15 @@ export class MvpReleaseIntegrationController {
       },
       onSfx: (event) => this.play(event),
     });
+  }
+
+  // 프롤로그를 마치거나 건너뛰면(시스템 뒤로가기 포함) 본 것으로 기록하고 공방(홈)으로 출근합니다. 설정에서 다시 볼 수 있습니다.
+  private finishPrologue() {
+    if (!this.state.prologueDone) {
+      this.state.prologueDone = true;
+      this.saveState();
+    }
+    this.show('home');
   }
 
   // ── Day 세션: 주문 N건 = 하루 일정 (#77 C안) ──
@@ -613,6 +632,10 @@ export class MvpReleaseIntegrationController {
       });
       return;
     }
+    if (this.screen === 'prologue') {
+      this.finishPrologue();
+      return;
+    }
     // 하루 정산 화면은 [홈] 버튼과 같이 다음 Day를 준비한 뒤 홈으로 갑니다(정산은 이미 끝난 상태).
     if (this.screen === 'reward' && this.state.day.status === 'settlement') this.beginNextDay();
     this.show('home');
@@ -621,7 +644,7 @@ export class MvpReleaseIntegrationController {
   private roomFor(screen: ReleaseScreen): ReleaseAudioRoom {
     if (screen === 'title') return 'title';
     if (screen === 'game' || screen === 'guide') return 'work';
-    if (screen === 'reward' || screen === 'race') return 'reward';
+    if (screen === 'reward' || screen === 'race' || screen === 'prologue') return 'reward';
     return 'home';
   }
 

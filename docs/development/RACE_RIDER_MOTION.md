@@ -23,7 +23,8 @@
 | [`race-rider-motion.ts`](../../src/game/release/race-rider-motion.ts) | race-progress | 바퀴·크랭크 각속도, 자세 선택, 티어, 위상 양자화, 2-본 IK, 베이크 오프셋 |
 | [`race-rider-sprite.ts`](../../src/game/release/race-rider-sprite.ts) | 위 셋 | 자세×위상별 far/near 레이어 그리드, 바퀴 회전 프레임, RGBA 시트 베이크 |
 | [`race-rider-view.ts`](../../src/game/release/race-rider-view.ts) | Phaser | 캔버스 텍스처 등록, 레이서 컨테이너(이미지 6장), `update(state)` |
-| [`race-cinematic-broadcast.ts`](../../src/game/release/race-cinematic-broadcast.ts) | 위 전부 | 참가 → 카운트다운 → 중계 → 완주 홀드 → 결과 흐름, 지면·언덕 패럴랙스, HUD |
+| [`race-cinematic-broadcast.ts`](../../src/game/release/race-cinematic-broadcast.ts) | 위 전부 | `RaceBroadcastScene`(중계 공통: 월드·레이서·HUD·순위표·재생 루프·완주 홀드)과 `RaceCinematicScene`(대회일: 참가 → 카운트다운 → 중계 → 결과) |
+| [`prologue-design.ts`](../../src/game/release/prologue-design.ts) | 위 전부 + [`prologue-story.ts`](../../src/game/release/prologue-story.ts) | 첫 시작 프롤로그: 삼촌의 프로 대회 중계([PROLOGUE.md](../game-design/PROLOGUE.md)) |
 
 `bike-pixel-sprite.ts`·`art-character-pixel.ts`는 `import type Phaser`로 바꿔 node(Vitest)에서도 로딩됩니다. [`tests/race-rider-purity.test.ts`](../../tests/race-rider-purity.test.ts)가 순수 모듈에 Phaser 값 import가 없음을 강제합니다.
 
@@ -88,6 +89,9 @@
 - 고정 레인 8개(순위 무관, 플레이어는 최근경), 깊이는 레인 순. 상대 위치는 진행률 차 × 3,000px에 ±180px tanh 소프트 클램프.
 - 카운트다운(3·2·1·GO) 뒤 스탠딩 스타트, 국면 배너, 하단 패널에 현재 자세·rpm·바퀴 티어 표시.
 - 완주 후 1.6초 코스팅 홀드(크랭크 수평 정지, 바퀴 감속) 뒤 결과·보상 정산. `onSettled` 훅은 기존과 같습니다.
+- 중계 공통 부분은 `RaceBroadcastScene`이 맡고, 하위 씬은 카메라가 따라갈 레이서(`isFocus`)·레이서 외형(`racerSpec`)·이름(`racerLabel`)·좌상단 배지·구간 해설·남은 거리 표기·카운트다운 유무와 앞뒤 장면만 정합니다.
+- 프롤로그는 결승 3km 지점부터 이미 달리는 장면이라 카운트다운·스탠딩 스타트 없이 순항 상태(바퀴 1.8 rev/s, 85rpm)로 시작하고, 삼촌 머리 위에 이름표를 띄웁니다.
+- 레이서 역할은 캐릭터 역할(정비사·점장·고객·삼촌)에 레이스 전용 `선수`를 더한 `RiderRole`입니다. `선수`는 `teamColor`로 저지·헬멧을 팀 색으로 칠하고(`riderPaletteFor`), 삼촌·선수는 빕 숏 차림이라 정강이를 피부색으로 그립니다(`shin`). 텍스처 캐시 키에 팀 색이 들어갑니다.
 
 ## 10. 테스트
 
@@ -95,7 +99,8 @@
 |---|---|
 | `tests/race-progress.test.ts` | 시드 결정성, 타임라인 단조성, 등수·기록 일치, 보상 |
 | `tests/race-rider-motion.test.ts` | 순항 회전수 역산, 비대칭 τ, 굴림 결합, 실제 타임라인 재생 시 티어, 케이던스·코스팅·상한, 상사점 자세 전환, IK, 베이크 오프셋 |
-| `tests/race-rider-sprite.test.ts` | 전 카테고리×자세×위상 다리·팔 도달(신장 0), 손=그립, 신발=페달 위, far 무잉크, 허벅지가 몸통 아래, 머리 맵 12×12, 시트 192프레임·결정성, 바퀴 45° 대칭·반사판 고유성 |
+| `tests/race-rider-sprite.test.ts` | 전 카테고리×자세×위상 다리·팔 도달(신장 0), 손=그립, 신발=페달 위, far 무잉크, 허벅지가 몸통 아래, 머리 맵 12×12(삼촌·선수 포함), 시트 192프레임·결정성, 팀 색·맨다리, 바퀴 45° 대칭·반사판 고유성 |
+| `tests/prologue-story.test.ts` | 프롤로그 대본 경기 선택의 결정성, 삼촌 우승·역전 조건, 타임라인 형식, 팀 색 팔레트, 대사 길이, 삼촌 픽셀 지도 |
 | `tests/bike-pixel-sprite.test.ts` | 리그 손 위치가 실제 핸들바 픽셀 위, 부품 분리 그리드 차집합, 캐시 키 |
 | `tests/race-rider-purity.test.ts` | 순수 모듈의 Phaser 값 import 금지 |
 
