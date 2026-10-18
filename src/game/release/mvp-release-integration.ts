@@ -40,7 +40,7 @@ import { CATALOG_SIZE, catalogBikeById } from './bike-catalog';
 import { WORKBENCH_SCHEDULE } from './workbench-orders';
 import { RELEASE_STORAGE_KEY, alignWorkbenchToDay, createReleaseState, restoreReleaseState, type ReleaseState } from './release-state';
 import { orderIndexOf, recoverEnergy } from '../../domain/merge-workbench';
-import { adOffer, grantAdRefill } from '../../domain/energy-refill';
+import { adOffer, applySettlementRefill, grantAdRefill, hasSettlementRefill } from '../../domain/energy-refill';
 import { firstSequenceOfDay } from '../../domain/progression';
 import { createPlatform, type GamePlatform, type HapticKind, type RewardedAdPort, type Unsubscribe } from '../../platform';
 import { SaveStore } from '../../platform/save-store';
@@ -434,7 +434,7 @@ export class MvpReleaseIntegrationController {
     const port = this.platform.rewardedAd;
     if (!port) return undefined;
     return {
-      offer: () => adOffer(this.state.workbench, this.state.adRefill, Date.now()),
+      offer: () => adOffer(this.state.workbench),
       preload: () => port.preload(),
       watch: () => this.watchRewardedAd(port),
       cancel: () => this.adAbort?.abort(),
@@ -451,7 +451,7 @@ export class MvpReleaseIntegrationController {
     if (this.adWatching) return 'busy';
     const now = Date.now();
     recoverEnergy(this.state.workbench, now);
-    if (!adOffer(this.state.workbench, this.state.adRefill, now).available) return 'unavailable';
+    if (!adOffer(this.state.workbench).available) return 'unavailable';
     this.adWatching = true;
     const requestId = `ad-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const resumeAfter = this.screen === 'game' && this.state.day.status === 'active';
@@ -539,6 +539,8 @@ export class MvpReleaseIntegrationController {
     const settled = settleDay(this.state.day, this.state.dayHistory, new Date().toISOString());
     this.state.day = settled.day;
     this.state.dayHistory = settled.history;
+    // 첫 대회 전 정산 지원: 정산과 같은 저장에 체력을 함께 기록합니다(이미 정산된 Day를 다시 열면 채우지 않음).
+    if (settled.settled) applySettlementRefill(this.state.workbench, settled.day.dayNumber, Date.now());
     this.saveState();
     this.show('reward');
   }
@@ -582,9 +584,11 @@ export class MvpReleaseIntegrationController {
         nextTitle: `영업 ${nextDay}일차 · ${daysToRace === 0 ? '대회일!' : `대회까지 ${daysToRace}일`}`,
         nextDetail: `첫 주문 ${nextOrder?.name ?? '주문'} · 오늘 목표 주문 ${day.orderTarget}건`,
         nextButton: '▶ 다음 영업 시작',
-        doneMessage: dreamUnlockNames.length > 0
-          ? `드림 등급 ${dreamUnlockNames.join(' · ')} 도감 등록! Garage에서 제작할 수 있어요. 다음 영업을 시작하거나 홈으로 돌아가세요.`
-          : '오늘 정산이 끝났습니다. 다음 영업을 시작하거나 홈으로 돌아가세요.',
+        doneMessage: [
+          dreamUnlockNames.length > 0 ? `드림 등급 ${dreamUnlockNames.join(' · ')} 도감 등록! Garage에서 제작할 수 있어요.` : '오늘 정산이 끝났습니다.',
+          hasSettlementRefill(day.dayNumber) ? '첫 대회 전까지는 정산하면 알바 체력이 가득 차요!' : '',
+          '다음 영업을 시작하거나 홈으로 돌아가세요.',
+        ].filter(Boolean).join(' '),
       },
       onReward: () => this.refreshShell(),
       onNext: () => { this.beginNextDay(); this.show('game'); },
