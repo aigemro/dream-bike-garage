@@ -25,6 +25,7 @@ import {
   openPartBox,
   orderIndexOf,
   recoverEnergy,
+  settleWorkbench,
   supplyBlock,
   undoLast,
   type Installed,
@@ -206,6 +207,8 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.setInfo(this.hooks.canPlay()
       ? '점선 칸이 다음 입고 자리예요. 상하좌우로 맞닿은 같은 부품을 눌러 합성하세요.'
       : '오늘 주문을 모두 납품했어요. 정산을 준비하고 있어요.');
+    // 납품 직후 화면을 떠났거나 새 영업일로 들어온 경우, 보드에 남은 부품을 지금 주문에 이어서 장착합니다.
+    this.continueWithLeftovers(this.generation);
   }
 
   update() {
@@ -706,8 +709,18 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.say(`${partLabel(part)} 반품 완료 · ↶ 되돌리기로 복구할 수 있어요.`);
   }
 
+  // 납품 연출이 끝나 다음 주문 카드로 바뀐 뒤에 남은 부품을 장착합니다(4종이 차면 그 주문도 납품).
+  // 하루 마감 중이면 하지 않고, 다음 영업일에 작업대로 들어올 때 이어 갑니다.
+  private continueWithLeftovers(generation: number) {
+    if (!this.alive || generation !== this.generation || !this.hooks.canPlay()) return;
+    const events = settleWorkbench(this.state, this.hooks.orders);
+    if (events.length === 0) return;
+    if (this.selected !== NONE && !this.state.board[this.selected]) this.selected = NONE;
+    this.commit(events, events.some((event) => event.type === 'delivered') ? undefined : '남은 부품을 다음 자전거에 이어서 장착했어요.');
+  }
+
   // 상태는 이미 도메인이 확정했습니다. 저장·납품 통지를 먼저 하고 연출은 뒤따라갑니다.
-  private commit(events: WorkbenchEvent[]) {
+  private commit(events: WorkbenchEvent[], info = this.describe(events)) {
     this.returnConfirmUntil = 0;
     this.hooks.onChange();
     events.forEach((event) => {
@@ -716,7 +729,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.arriving = new Set(events.flatMap((event) => (event.type === 'placed' && this.state.board[event.index] ? [event.index] : [])));
     this.renderBoard();
     this.renderShelf();
-    this.setInfo(this.describe(events));
+    this.setInfo(info);
     const generation = this.generation;
     this.queue = this.queue.then(() => this.play(events, generation));
   }
@@ -828,6 +841,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
           this.renderOrder();
           this.hooks.onSfx?.('reward');
         });
+        this.continueWithLeftovers(generation);
       }
     }
   }

@@ -19,6 +19,10 @@ export const ENERGY_RECOVERY_MS = 10 * 60 * 1000;
 // 상자를 열지 않고 이어서 합성한 횟수(연쇄)가 기준에 닿으면 보너스를 받습니다.
 export const COMBO_FREE_BOX = 3;
 export const COMBO_GUARANTEE = 5;
+// 상자에서 아직 장착하지 않은 부품 종류를 우선 뽑는 확률.
+// 0.7이던 값을 올렸습니다: 남은 부품이 Lv.3·Lv.4 한 종류뿐일 때 30%가 이미 장착한 종류로 나와 보드가 잔부품으로 차고,
+// Lv.4 주문은 상위 10%가 상자 30개 넘게 들어 체력 한 통으로 끝낼 수 없었습니다(입고 시뮬레이션 2026-10-18).
+export const NEEDED_PART_RATE = 0.85;
 // 미장착 부품이 이 횟수만큼 연속으로 안 나오면 다음 상자에서 미장착 부품을 보장합니다.
 const MISS_LIMIT = 4;
 
@@ -149,13 +153,13 @@ export function msUntilNextEnergy(state: WorkbenchState, now: number): number {
 }
 
 /**
- * 입고 부품 추첨: Lv.1 80%·Lv.2 20%, 70%는 아직 장착하지 않은 부품에서 고릅니다.
+ * 입고 부품 추첨: Lv.1 80%·Lv.2 20%, NEEDED_PART_RATE(85%)는 아직 장착하지 않은 부품에서 고릅니다.
  * 미장착 부품이 MISS_LIMIT회 연속 안 나왔거나 확정 보너스가 있으면 미장착 부품을 보장합니다.
  */
 export function rollPart(installed: Installed, misses: number, rng: () => number, guaranteed: boolean) {
   const needs = WORKBENCH_PART_TYPES.filter((type) => !installed[type]);
   const applied = guaranteed && needs.length > 0;
-  const focus = needs.length > 0 && (applied || misses >= MISS_LIMIT || rng() < 0.7);
+  const focus = needs.length > 0 && (applied || misses >= MISS_LIMIT || rng() < NEEDED_PART_RATE);
   const pool = focus ? needs : WORKBENCH_PART_TYPES;
   const type = pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))];
   const level = rng() < 0.2 ? 2 : 1;
@@ -171,34 +175,41 @@ function pickInstall(board: readonly WorkbenchCell[], type: WorkbenchPartType, l
   return best;
 }
 
-// 장착 → 납품 → 다음 주문 장착을 더 진행할 수 없을 때까지 정리합니다.
-// 한 행동에서는 납품을 1건만 확정합니다. 이월 부품으로 다음 주문까지 바로 완성되면 장착까지만 하고,
-// 그 납품은 다음 행동의 첫 정리에서 확정합니다(급여·Day 집계가 행동마다 1건씩 반영되고, 하루 마감 뒤 주문이 밀리지 않게).
-// 납품마다 부품 4개가 소비되므로 반복은 반드시 끝나며, 안전장치로 횟수를 제한합니다.
+// 현재 주문에 장착할 수 있는 부품을 장착하고, 4종이 모두 장착되면 납품을 확정합니다.
+// 납품하면 거기서 멈춥니다. 남은 부품을 다음 주문에 장착하는 일은 이 행동에서 하지 않고,
+// 화면이 납품 연출을 마치고 다음 주문 카드로 바꾼 뒤 settleWorkbench로 이어 갑니다(다음 행동의 정리에서도 이어짐).
+// 그래서 한 행동의 납품은 최대 1건이고(급여·Day 집계가 1건씩 반영, 하루 마감 뒤 주문이 밀리지 않음),
+// 다음 자전거 카드가 나오기 전에 이월 부품이 미리 장착돼 보이지 않습니다.
 function settle(state: WorkbenchState, orders: WorkbenchOrders, events: WorkbenchEvent[]) {
   const list = orderListOf(orders);
   if (list.length === 0) return;
-  let delivered = 0;
-  for (let guard = 0; guard <= WORKBENCH_CELLS; guard += 1) {
-    const orderIndex = orderIndexOf(state.order, orders);
-    const spec = list[orderIndex];
-    for (const type of WORKBENCH_PART_TYPES) {
-      if (state.installed[type]) continue;
-      const from = pickInstall(state.board, type, spec.levels[type]);
-      if (from < 0) continue;
-      const part = state.board[from]!;
-      state.board[from] = null;
-      state.installed[type] = true;
-      events.push({ type: 'installed', from, part: { ...part }, order: state.order });
-    }
-    if (!WORKBENCH_PART_TYPES.every((type) => state.installed[type])) return;
-    if (delivered >= 1) return;
-    events.push({ type: 'delivered', order: state.order, orderIndex, reward: spec.reward });
-    delivered += 1;
-    state.order += 1;
-    state.installed = noneInstalled();
-    state.misses = 0;
+  const orderIndex = orderIndexOf(state.order, orders);
+  const spec = list[orderIndex];
+  for (const type of WORKBENCH_PART_TYPES) {
+    if (state.installed[type]) continue;
+    const from = pickInstall(state.board, type, spec.levels[type]);
+    if (from < 0) continue;
+    const part = state.board[from]!;
+    state.board[from] = null;
+    state.installed[type] = true;
+    events.push({ type: 'installed', from, part: { ...part }, order: state.order });
   }
+  if (!WORKBENCH_PART_TYPES.every((type) => state.installed[type])) return;
+  events.push({ type: 'delivered', order: state.order, orderIndex, reward: spec.reward });
+  state.order += 1;
+  state.installed = noneInstalled();
+  state.misses = 0;
+}
+
+/**
+ * 행동 없이 보드에 남은 부품을 현재 주문에 장착합니다(4종이 차면 납품 1건까지).
+ * 화면이 납품 연출을 마친 뒤나 작업대에 들어올 때 부릅니다. 할 일이 없으면 빈 배열이고, 장착이 있으면 되돌리기 기록을 지웁니다.
+ */
+export function settleWorkbench(state: WorkbenchState, orders: WorkbenchOrders): WorkbenchEvent[] {
+  const events: WorkbenchEvent[] = [];
+  settle(state, orders, events);
+  if (events.length > 0) state.undo = null;
+  return events;
 }
 
 // 납품은 급여 지급과 함께 확정되므로, 납품이 포함된 행동은 되돌리기 대상에서 뺍니다.
