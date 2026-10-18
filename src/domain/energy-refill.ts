@@ -119,3 +119,29 @@ export function parseAdRefillRecord(value: unknown): AdRefillRecord | null {
   if (record.lastRequestId !== null && typeof record.lastRequestId !== 'string') return null;
   return { date: record.date, count: record.count, lastRewardAt: record.lastRewardAt ?? null, lastRequestId: record.lastRequestId ?? null };
 }
+
+// ── 첫 대회 전 정산 지원 (#77 (e)안) ──
+// 1~5일차 체력 소모(약 74)가 한 통(30) + 광고(+10 × 3)보다 커서 첫 대회까지 몇 시간을 기다려야 했습니다.
+// 첫 대회 전날까지는 Day를 정산할 때 체력을 가득 채워, 처음 접속한 플레이어가 대기 없이 첫 대회까지 가게 합니다.
+// 그 뒤 Day는 현행 회복(10분당 1)만 적용해 '한 번 접속 = 하루 영업' 리듬과 경제는 그대로 둡니다.
+// 근거: docs/development/MERGE_WORKBENCH_DAY_SESSION.md 10절 '체력 조정안 비교'
+
+/** 정산 지원을 받는 마지막 영업일. 첫 대회(5일차)의 전날입니다. */
+export const SETTLEMENT_REFILL_LAST_DAY = 4;
+
+/** 이 영업일을 정산하면 체력을 가득 채우는지 */
+export function hasSettlementRefill(dayNumber: number): boolean {
+  return Number.isInteger(dayNumber) && dayNumber >= 1 && dayNumber <= SETTLEMENT_REFILL_LAST_DAY;
+}
+
+/**
+ * 정산한 영업일이 지원 구간이면 체력을 최대치로 채우고 회복 기준 시각을 지금으로 옮깁니다.
+ * 가득 채우기라 여러 번 불려도 결과가 같습니다. 채운 양을 돌려주며, 지원 구간이 아니거나 이미 가득이면 0입니다.
+ */
+export function applySettlementRefill(state: Pick<WorkbenchState, 'energy' | 'energyAnchor'>, dayNumber: number, now: number): number {
+  if (!hasSettlementRefill(dayNumber)) return 0;
+  const added = Math.max(0, ENERGY_MAX - state.energy);
+  state.energy = ENERGY_MAX;
+  state.energyAnchor = now;
+  return added;
+}
