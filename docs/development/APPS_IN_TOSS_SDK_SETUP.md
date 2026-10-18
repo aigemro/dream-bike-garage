@@ -49,6 +49,7 @@ README 표의 업로드 날짜와 커밋도 함께 바꿉니다.
 | 닫기 | 없음 | `Screen.close()` |
 | 진동 | `navigator.vibrate` | `Device.triggerHaptic` |
 | Safe Area | 없음(CSS `env()`) | `SafeArea.get/subscribe` |
+| 분석 이벤트 | 개발 서버에서만 `console.info` | `Analytics.log` |
 
 ### 출시 체크리스트 대응 (#79 4단계)
 
@@ -72,6 +73,15 @@ README 표의 업로드 날짜와 커밋도 함께 바꿉니다.
   - **테스트에는 반드시 테스트 ID를 씁니다.** 운영 ID로 테스트하면 제재를 받을 수 있습니다(공식 안내). 운영 ID는 운영 번들을 만들 때만 넣습니다.
   - 예: `VITE_TOSS_REWARDED_AD_GROUP_ID=<콘솔 ID> npm run build:toss`
 - `npm run dev:toss`의 SDK 모의 광고는 불러오기·닫힘만 흉내 내고 보상 이벤트를 보내지 않습니다. 보상 흐름은 웹 개발 서버의 모의 광고로 확인하고, 실제 광고는 토스 앱 테스트 번들로 확인합니다.
+
+### 분석 이벤트 기록 (`GamePlatform.logEvent`, #92)
+
+- 앱인토스 어댑터는 SDK `Analytics.log({ log_name, log_type, params })`로 보냅니다(`src/platform/analytics.ts`). 기록할 이벤트와 파라미터는 [머지 작업대 문서 9절 '이벤트 기록'](MERGE_WORKBENCH_DAY_SESSION.md)에 있습니다.
+- `eventLog`가 아니라 `Analytics.log`를 쓰는 근거: SDK 3.8.0 타입 선언에서 `eventLog`는 deprecated이며 "`Analytics.log`를 사용해주세요"라고 안내합니다. 공식 문서도 같은 기능을 [Analytics.log](https://developers-apps-in-toss.toss.im/documentation/sdk/domains-api/analytics/analytics.log.md)로 설명합니다.
+- `Analytics.impression`·`click`은 현재 경로(`<pathname>::impression`)와 https 페이지를 기준으로 하는 DOM 요소용이라, 캔버스(Phaser) 버튼에는 `log_type`(impression·click·event)을 직접 정하는 `Analytics.log`를 씁니다.
+- 동작: `anonymous_key`는 SDK가 자동으로 붙이고, 값은 문자열로 바뀝니다. 샌드박스(`npm run dev:toss`)에서는 콘솔에만 출력되고, 토스앱 5.208.0 미만에서는 오류 없이 무시됩니다. 게임 쪽도 기록 오류를 삼켜 플레이를 막지 않습니다.
+- 이름은 [로그(이벤트) 가이드](https://developers-apps-in-toss.toss.im/guide/analytics/logging.md) 권장대로 `분류_행동` 형태(`ad_refill_request` 등)로 짓고, 개인정보·민감 정보는 넣지 않습니다.
+- 확인 위치: 앱인토스 콘솔 **분석 > 이벤트**. 샌드박스·출시 전 데이터는 집계하지 않고 출시 다음 날부터 보입니다.
 
 ### 계정 슬롯 저장 (`SaveStore`)
 

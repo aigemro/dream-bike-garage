@@ -6,8 +6,11 @@ export function createMockRewardedAd(): RewardedAdPort {
   let busy = false;
   return {
     preload() {},
-    show(onReward, signal) {
-      if (busy) return Promise.resolve<RewardedAdOutcome>('failed');
+    show(onReward, signal, observer) {
+      if (busy) {
+        observer?.onFailure?.('busy');
+        return Promise.resolve<RewardedAdOutcome>('failed');
+      }
       busy = true;
       return new Promise<RewardedAdOutcome>((resolve) => {
         const layer = document.createElement('div');
@@ -37,6 +40,9 @@ export function createMockRewardedAd(): RewardedAdPort {
           element.textContent = label;
           element.style.cssText = 'padding:12px;border:0;border-radius:8px;font-size:15px;background:#eee;cursor:pointer';
           element.addEventListener('click', () => {
+            // 모의 광고는 '불러오기 실패'가 아니면 광고가 노출된 것으로 보고 impression을 먼저 알립니다.
+            if (outcome === 'failed') observer?.onFailure?.('load');
+            else observer?.onImpression?.();
             if (outcome === 'rewarded') onReward();
             finish(outcome);
           });

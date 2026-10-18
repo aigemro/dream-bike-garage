@@ -109,6 +109,36 @@ describe('보상형 광고 어댑터', () => {
     expect(onReward).not.toHaveBeenCalled();
   });
 
+  it('impression·실패 이유는 observer로 알리기만 하고, observer 오류가 보상·결과를 바꾸지 않는다', async () => {
+    const fake = fakeSdk();
+    const port = createFullScreenRewardedAd(fake.sdk, 'test-id');
+    const onImpression = vi.fn(() => { throw new Error('analytics'); });
+    const onReward = vi.fn();
+    const result = port.show(onReward, undefined, { onImpression });
+    await flush();
+    fake.loads[0].onEvent({ type: 'loaded' });
+    await flush();
+    await flush();
+    fake.shows[0].onEvent({ type: 'impression' });
+    expect(onReward).not.toHaveBeenCalled(); // 노출만으로는 지급하지 않음
+    fake.shows[0].onEvent({ type: 'userEarnedReward' });
+    fake.shows[0].onEvent({ type: 'dismissed' });
+    await expect(result).resolves.toBe('rewarded');
+    expect(onImpression).toHaveBeenCalledTimes(1);
+    expect(onReward).toHaveBeenCalledTimes(1);
+
+    const onFailure = vi.fn();
+    const busy = port.show(vi.fn());
+    await expect(port.show(vi.fn(), undefined, { onFailure })).resolves.toBe('failed');
+    expect(onFailure).toHaveBeenLastCalledWith('busy');
+    await flush();
+    fake.loads[1].onEvent({ type: 'loaded' });
+    await flush();
+    await flush();
+    fake.shows[1].onError(new Error('host'));
+    await busy;
+  });
+
   it('미리 불러온 광고를 쓰고, 보여 준 뒤에는 다음 요청에서 새로 불러온다', async () => {
     const fake = fakeSdk();
     const port = createFullScreenRewardedAd(fake.sdk, 'test-id');
