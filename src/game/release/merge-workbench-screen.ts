@@ -1,6 +1,6 @@
 // 머지 작업대 화면 (머지 코어 E안 · 390×810)
 // 게임 화면 B안(game-screen-mobile)의 화면 구성(헤더 → 주문 카드 → 6×7 보드 → 하단 선반)과 따뜻한 픽셀 팔레트를 그대로 쓰고,
-// 규칙은 domain/merge-workbench(가운데→바깥 자동 입고·이동 금지·인접 2개 합성·연쇄 보너스·알바 체력)를 사용합니다.
+// 규칙은 domain/merge-workbench(가운데→바깥 자동 입고·이동 금지·인접 2개 합성·합성 보너스·확정 상자·알바 체력)를 사용합니다.
 // 작업대 상태는 컨트롤러가 소유하며, 이 화면은 도메인 함수로 바꾼 뒤 onChange로 저장을 요청합니다.
 // 납품은 행동 시점에 도메인이 확정하고, 화면은 확정된 이벤트를 순서대로 연출만 합니다.
 import Phaser from 'phaser';
@@ -8,22 +8,26 @@ import { drawPixelBike, drawPixelPartIcon, makeWarmColorway, bikePartAnchorOffse
 import { orderMetaAt } from './meta-progress';
 import type { ReleaseSfxEvent } from './release-audio';
 import {
-  COMBO_FREE_BOX,
-  COMBO_GUARANTEE,
+  BONUS_FREE_BOX_AT,
+  BONUS_PICK_BOX_AT,
   ENERGY_MAX,
+  PICK_BOX_LEVEL,
   WORKBENCH_COLUMNS,
   WORKBENCH_PART_TYPES,
   WORKBENCH_ROWS,
   WORKBENCH_CELLS,
   WORKBENCH_MAX_LEVEL,
   canMerge,
+  canPlacePickBox,
   discardPart,
   mergeParts,
   mergeTargets,
   msUntilNextEnergy,
+  neighbors,
   nextIntakeSlot,
   openPartBox,
   orderIndexOf,
+  placePickBox,
   recoverEnergy,
   supplyBlock,
   undoLast,
@@ -71,6 +75,8 @@ const SHELF_TOP = 668;
 const ROW1_Y = 708;
 const ROW2_Y = 762;
 const BOX = { x: 136, y: ROW1_Y, w: 240, h: 48 };
+// 합성 보너스 칸(2행 오른쪽): 확정 상자가 있으면 눌러서 부품·자리를 고릅니다.
+const BONUS = { x: 286, y: ROW2_Y };
 const RETURN_CONFIRM_MS = 2500;
 // 체력 카드(소진 안내·광고 충전): 보드 가운데에 겹쳐 띄웁니다. 높이는 보여 줄 줄 수에 따라 정합니다.
 const CARD = { x: 195, y: 430, w: 330 };
@@ -165,6 +171,9 @@ class MergeWorkbenchScene extends Phaser.Scene {
   // 광고 재생 중 막: 광고가 끝날 때까지 작업대 입력을 막습니다.
   private adOverlay?: Phaser.GameObjects.Container;
   private energyAdTag!: Phaser.GameObjects.Container;
+  // 확정 상자: 부품 종류 고르기 카드 → 고른 종류를 놓을 빈칸 고르기
+  private pickCard?: Phaser.GameObjects.Container;
+  private pickType: WorkbenchPartType | null = null;
   // 연출 순서: 상태는 즉시 바뀌고, 주문 카드는 이벤트 연출을 따라 늦게 바뀝니다.
   private queue: Promise<void> = Promise.resolve();
   private generation = 0;
@@ -202,9 +211,10 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private energyTitle!: Phaser.GameObjects.Text;
   private energySub!: Phaser.GameObjects.Text;
   private energyFill!: Phaser.GameObjects.Rectangle;
-  private comboTitle!: Phaser.GameObjects.Text;
-  private comboSub!: Phaser.GameObjects.Text;
-  private comboDots: Phaser.GameObjects.Rectangle[] = [];
+  private bonusPanel!: Phaser.GameObjects.Rectangle;
+  private bonusTitle!: Phaser.GameObjects.Text;
+  private bonusSub!: Phaser.GameObjects.Text;
+  private bonusDots: Phaser.GameObjects.Rectangle[] = [];
 
   private get state() { return this.hooks.workbench; }
 
@@ -334,7 +344,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.info = this.add.text(12, BOARD_BOTTOM + 10, '', { ...textStyle(11, CREAM_TEXT, false), wordWrap: { width: 258 }, lineSpacing: 2 }).setDepth(10);
     this.cancelButton = this.add.rectangle(334, BOARD_BOTTOM + 38, 104, 44, BROWN).setStrokeStyle(2, CREAM).setDepth(10)
       .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => this.deselect());
+      .on('pointerdown', () => (this.pickType ? this.exitPickMode('확정 상자 배치를 취소했어요. 상자는 그대로 남아 있어요.') : this.deselect()));
     this.cancelLabel = this.add.text(334, BOARD_BOTTOM + 38, '× 선택 취소', textStyle(11, CREAM_TEXT)).setOrigin(0.5).setDepth(11);
   }
 
@@ -350,13 +360,13 @@ class MergeWorkbenchScene extends Phaser.Scene {
     return g;
   }
 
-  // 게임 화면 B안 '택배 선반' 자리에 부품 상자·되돌리기·반품(1행)과 알바 체력·연쇄 합성(2행)을 둡니다.
+  // 게임 화면 B안 '택배 선반' 자리에 부품 상자·되돌리기·반품(1행)과 알바 체력·합성 보너스(2행)를 둡니다.
   private drawShelf() {
     this.add.rectangle(195, SHELF_TOP + 66, 374, 136, CREAM).setStrokeStyle(4, BORDER).setDepth(2);
     this.add.rectangle(96, SHELF_TOP, 152, 22, BROWN).setDepth(3);
     this.add.text(28, SHELF_TOP - 7, '부품 상자 · PARTS BOX', textStyle(10, CREAM_TEXT)).setDepth(4);
     this.add.rectangle(282, SHELF_TOP, 200, 22, BROWN).setStrokeStyle(2, BORDER).setDepth(3);
-    this.add.text(282, SHELF_TOP, `${COMBO_FREE_BOX}연쇄 무료 상자 · ${COMBO_GUARANTEE}연쇄 필수 부품`, textStyle(10, CREAM_TEXT)).setOrigin(0.5).setDepth(4);
+    this.add.text(282, SHELF_TOP, `합성 ${BONUS_FREE_BOX_AT}회 무료 · ${BONUS_PICK_BOX_AT}회 확정 상자`, textStyle(10, CREAM_TEXT)).setOrigin(0.5).setDepth(4);
 
     this.boxButton = this.add.rectangle(BOX.x, BOX.y, BOX.w, BOX.h, GOLD).setStrokeStyle(3, BROWN).setDepth(3)
       .setInteractive({ useHandCursor: true })
@@ -384,13 +394,18 @@ class MergeWorkbenchScene extends Phaser.Scene {
       this.add.text(0, 0, `▶+${REWARDED_AD_POLICY.amount}`, textStyle(9, CREAM_TEXT)).setOrigin(0.5),
     ]).setDepth(5).setVisible(false);
 
-    const combo = this.infoPanel(286);
-    this.comboTitle = combo.title;
-    this.comboSub = combo.sub.setColor(MUTED).setFontStyle('bold');
-    for (let i = 0; i < COMBO_GUARANTEE; i += 1) {
-      const milestone = i === COMBO_FREE_BOX - 1 || i === COMBO_GUARANTEE - 1;
-      this.comboDots.push(this.add.rectangle(306 + i * 14, ROW2_Y - 11, milestone ? 11 : 9, milestone ? 11 : 9, CREAM).setStrokeStyle(2, BORDER).setDepth(4));
+    const bonus = this.infoPanel(BONUS.x);
+    this.bonusPanel = bonus.panel;
+    this.bonusTitle = bonus.title;
+    this.bonusSub = bonus.sub.setColor(MUTED).setFontStyle('bold');
+    for (let i = 0; i < BONUS_PICK_BOX_AT; i += 1) {
+      const milestone = i === BONUS_FREE_BOX_AT - 1 || i === BONUS_PICK_BOX_AT - 1;
+      this.bonusDots.push(this.add.rectangle(306 + i * 14, ROW2_Y - 11, milestone ? 11 : 9, milestone ? 11 : 9, CREAM).setStrokeStyle(2, BORDER).setDepth(4));
     }
+    // 합성 보너스 칸을 누르면 확정 상자를 쓰거나(있을 때) 보너스 규칙을 안내합니다.
+    this.add.rectangle(BONUS.x, ROW2_Y, 172, 48, 0xffffff, 0.001).setDepth(6)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.onBonusTap());
   }
 
   private smallButton(x: number, label: string, handler: () => void): [Phaser.GameObjects.Rectangle, Phaser.GameObjects.Text] {
@@ -408,8 +423,8 @@ class MergeWorkbenchScene extends Phaser.Scene {
   }
 
   private infoPanel(x: number) {
-    this.add.rectangle(x, ROW2_Y, 172, 48, GOLD).setStrokeStyle(2, BROWN).setDepth(3);
     return {
+      panel: this.add.rectangle(x, ROW2_Y, 172, 48, GOLD).setStrokeStyle(2, BROWN).setDepth(3),
       title: this.add.text(x - 80, ROW2_Y - 18, '', textStyle(11, INK)).setDepth(4),
       sub: this.add.text(x - 80, ROW2_Y - 2, '', textStyle(10, MUTED, false)).setDepth(4),
     };
@@ -447,10 +462,14 @@ class MergeWorkbenchScene extends Phaser.Scene {
 
   private renderSelection() {
     this.highlight.clear();
+    if (this.pickType) {
+      this.renderPickTargets(this.pickType);
+      return;
+    }
     const active = this.selected !== NONE && !!this.state.board[this.selected];
     this.pieces.forEach((piece, index) => piece.setScale(active && index === this.selected ? 1.06 : 1));
     this.cancelButton.setVisible(active);
-    this.cancelLabel.setVisible(active);
+    this.cancelLabel.setVisible(active).setText('× 선택 취소');
     if (!active) return;
     const center = cellCenter(this.selected);
     this.highlight.lineStyle(3, CREAM, 1).strokeRect(center.x - 26, center.y - 26, 52, 52);
@@ -459,6 +478,24 @@ class MergeWorkbenchScene extends Phaser.Scene {
       this.highlight.fillStyle(GREEN, 0.2).fillRect(at.x - 22, at.y - 22, 44, 44);
       this.highlight.lineStyle(4, GREEN, 1).strokeRect(at.x - 24, at.y - 24, 48, 48);
     }
+  }
+
+  // 확정 상자를 놓을 수 있는 빈칸: 놓자마자 합성할 수 있는 칸(같은 종류 Lv.1과 맞닿음)은 초록, 나머지는 노랑
+  private renderPickTargets(type: WorkbenchPartType) {
+    this.pieces.forEach((piece) => piece.setScale(1));
+    this.cancelButton.setVisible(true);
+    this.cancelLabel.setVisible(true).setText('× 배치 취소');
+    this.state.board.forEach((part, index) => {
+      if (part) return;
+      const at = cellCenter(index);
+      const pairs = this.mergesAfterPick(type, index);
+      this.highlight.fillStyle(pairs ? GREEN : AMBER, pairs ? 0.28 : 0.16).fillRect(at.x - 22, at.y - 22, 44, 44);
+      this.highlight.lineStyle(pairs ? 4 : 2, pairs ? GREEN : AMBER, 1).strokeRect(at.x - 23, at.y - 23, 46, 46);
+    });
+  }
+
+  private mergesAfterPick(type: WorkbenchPartType, index: number) {
+    return neighbors(index).some((cell) => this.state.board[cell]?.type === type && this.state.board[cell]?.level === PICK_BOX_LEVEL);
   }
 
   private orderSpec(order: number) {
@@ -497,7 +534,6 @@ class MergeWorkbenchScene extends Phaser.Scene {
     const now = Date.now();
     const block = supplyBlock(this.state);
     const free = this.state.freeBoxes > 0;
-    const sure = this.state.guarantees > 0;
     const blocked = Boolean(block) || !this.hooks.canPlay();
     this.boxButton.setFillStyle(blocked ? 0xe8d3a6 : free ? 0xf4c86a : GOLD).setStrokeStyle(3, blocked ? 0xb08a6a : BROWN);
     this.boxTitle.setColor(blocked ? MUTED : INK);
@@ -506,8 +542,8 @@ class MergeWorkbenchScene extends Phaser.Scene {
         ? '작업대가 가득 찼어요 · 반품으로 자리 확보'
         : block === 'energy'
           ? '체력 소진 · 눌러서 회복 안내 보기'
-          : `${free ? '무료 상자 · 체력 소모 없음' : '점선 칸에 자동 배치'}${sure ? ' · 필수 부품 확정' : ''}`)
-      .setColor(block ? ALERT : free || sure ? SUCCESS : MUTED);
+          : free ? '무료 상자 · 체력 소모 없음' : '점선 칸에 자동 배치')
+      .setColor(block ? ALERT : free ? SUCCESS : MUTED);
     this.boxCost.setText(free ? `무료 ×${this.state.freeBoxes}` : '⚡ −1').setColor(free ? SUCCESS : ALERT);
 
     this.styleSmallButton(this.undoButton, this.undoLabel, Boolean(this.state.undo));
@@ -520,9 +556,22 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.energySub.setText(this.state.energy >= ENERGY_MAX ? '가득 참' : `다음 +1 ${clockLabel(msUntilNextEnergy(this.state, now))}`);
     this.energyFill.setScale(this.state.energy / ENERGY_MAX, 1);
     this.energyAdTag.setVisible(this.hooks.rewardedAd?.offer().available === true);
-    this.comboTitle.setText(`연쇄 합성 ${this.state.combo}`);
-    this.comboDots.forEach((dot, i) => dot.setFillStyle(i < this.state.combo ? (i < COMBO_FREE_BOX ? GREEN : AMBER) : CREAM));
-    this.comboSub.setText(`무료 상자 ${this.state.freeBoxes} · 확정 ${this.state.guarantees}`);
+    this.renderBonus();
+  }
+
+  // 합성 보너스 칸: 진행 점 5개(3번째 무료 상자, 5번째 확정 상자). 확정 상자가 있으면 눌러서 쓰라고 강조합니다.
+  private renderBonus() {
+    const { bonusCount, freeBoxes, pickBoxes } = this.state;
+    const ready = pickBoxes > 0 && this.hooks.canPlay();
+    this.bonusPanel.setFillStyle(ready ? AMBER : GOLD).setStrokeStyle(ready ? 3 : 2, ready ? BORDER : BROWN);
+    this.bonusDots.forEach((dot, i) => dot.setFillStyle(i < bonusCount ? (i < BONUS_FREE_BOX_AT ? GREEN : RED) : CREAM));
+    this.bonusTitle.setText(pickBoxes > 0 ? `확정 상자 ×${pickBoxes}` : `합성 보너스 ${bonusCount}/${BONUS_PICK_BOX_AT}`);
+    const next = bonusCount < BONUS_FREE_BOX_AT
+      ? `무료까지 ${BONUS_FREE_BOX_AT - bonusCount}회`
+      : `확정까지 ${BONUS_PICK_BOX_AT - bonusCount}회`;
+    this.bonusSub
+      .setText(ready ? '눌러서 부품·자리 고르기' : `무료 상자 ${freeBoxes} · ${next}`)
+      .setColor(ready ? INK : MUTED);
   }
 
   private setInfo(message: string, tone: Tone = 'info') {
@@ -553,7 +602,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
   }
 
   private maybeHint() {
-    if (!this.alive || this.hintShown || this.drag || this.energyCard || this.adOverlay || !this.hooks.canPlay()) return;
+    if (!this.alive || this.hintShown || this.drag || this.energyCard || this.adOverlay || this.pickCard || this.pickType || !this.hooks.canPlay()) return;
     const selecting = this.selected !== NONE && !!this.state.board[this.selected];
     if (!shouldShowHint(this.state, performance.now() - this.lastInputAt, selecting)) return;
     const pick = recommendMerge(this.state, this.hooks.orders);
@@ -587,6 +636,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
 
   private onCellDown(index: number, pointer: Phaser.Input.Pointer) {
     if (this.drag || this.blockedByDay()) return;
+    if (this.pickType) { this.placePick(this.pickType, index); return; }
     this.drag = { from: index, start: { x: pointer.x, y: pointer.y }, dragging: false, hover: NONE };
   }
 
@@ -684,6 +734,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private onOpenBox() {
     if (this.blockedByDay()) return;
     this.cancelDrag();
+    this.exitPickMode();
     const events = openPartBox(this.state, this.hooks.orders, Date.now());
     if (!events) {
       if (supplyBlock(this.state) === 'energy') {
@@ -703,11 +754,98 @@ class MergeWorkbenchScene extends Phaser.Scene {
     }
   }
 
+  // ── 확정 상자: 합성 5번째 보너스. 부품 종류를 고르고, 놓을 빈칸을 직접 고릅니다(체력 소모 없음) ──
+  private onBonusTap() {
+    if (this.blockedByDay() || this.energyCard || this.adOverlay || this.pickCard) return;
+    this.cancelDrag();
+    if (this.state.pickBoxes < 1) {
+      this.say(`합성에 성공할 때마다 보너스가 1칸 차요. ${BONUS_FREE_BOX_AT}번째에 무료 상자, ${BONUS_PICK_BOX_AT}번째에 원하는 부품을 원하는 칸에 놓는 확정 상자를 받아요.`);
+      return;
+    }
+    if (nextIntakeSlot(this.state.board) < 0) {
+      this.say('확정 상자를 놓을 빈칸이 없어요. 합성하거나 반품해 자리를 만드세요.', 'error');
+      return;
+    }
+    this.hooks.onSfx?.('tap');
+    this.openPickCard();
+  }
+
+  private openPickCard() {
+    this.exitPickMode();
+    this.selected = NONE;
+    this.clearHint();
+    this.renderSelection();
+    const { spec } = this.orderSpec(this.state.order);
+    const height = 300;
+    const top = CARD.y - height / 2;
+    const card = this.add.container(0, 0, [
+      this.add.rectangle(195, 405, 390, 810, 0x1d1016, 0.55).setInteractive(),
+      this.add.rectangle(CARD.x, CARD.y, CARD.w, height, CREAM).setStrokeStyle(4, BORDER),
+      this.add.rectangle(CARD.x, top + 22, 108, 22, AMBER).setStrokeStyle(2, BORDER),
+      this.add.text(CARD.x, top + 22, `확정 상자 ×${this.state.pickBoxes}`, textStyle(10, INK)).setOrigin(0.5),
+      this.add.text(CARD.x, top + 52, '어떤 부품을 놓을까요?', textStyle(16, INK)).setOrigin(0.5),
+      this.add.text(CARD.x, top + 72, `고른 부품 Lv.${PICK_BOX_LEVEL}을 원하는 빈칸에 놓아요. 체력은 쓰지 않아요.`, {
+        ...textStyle(11, MUTED, false), align: 'center', wordWrap: { width: CARD.w - 44 },
+      }).setOrigin(0.5, 0),
+    ]).setDepth(60);
+    WORKBENCH_PART_TYPES.forEach((type, i) => {
+      const x = CARD.x + (i % 2 === 0 ? -76 : 76);
+      const y = top + 134 + Math.floor(i / 2) * 76;
+      const done = this.state.installed[type];
+      const button = this.add.rectangle(x, y, 144, 66, done ? 0xe8d3a6 : GOLD).setStrokeStyle(3, done ? 0xb08a6a : WARM_PART_COLORS[type])
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => { this.hooks.onSfx?.('tap'); this.choosePickType(type); });
+      card.add([
+        button,
+        drawPixelPartIcon(this, x - 44, y, 2, type),
+        this.add.text(x - 18, y - 18, PART_NAMES[type], textStyle(13, INK)),
+        this.add.text(x - 18, y + 2, done ? '이번 주문 장착 완료' : `주문 Lv.${spec.levels[type]} 필요`, textStyle(10, done ? MUTED : SUCCESS, !done)),
+      ]);
+    });
+    const close = this.add.rectangle(CARD.x, top + height - 26, 160, 30, CREAM).setStrokeStyle(3, BORDER)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => { this.hooks.onSfx?.('tap'); this.closePickCard(); });
+    card.add([close, this.add.text(CARD.x, top + height - 26, '나중에 쓰기', textStyle(12, INK)).setOrigin(0.5)]);
+    this.pickCard = card;
+  }
+
+  private closePickCard() {
+    this.pickCard?.destroy(true);
+    this.pickCard = undefined;
+  }
+
+  private choosePickType(type: WorkbenchPartType) {
+    this.closePickCard();
+    this.pickType = type;
+    this.renderSelection();
+    this.setInfo(`${PART_NAMES[type]} Lv.${PICK_BOX_LEVEL}을 놓을 빈칸을 누르세요. 초록 칸은 놓자마자 합성할 수 있어요.`);
+  }
+
+  private exitPickMode(message?: string) {
+    if (!this.pickType) return;
+    this.pickType = null;
+    this.renderSelection();
+    if (message) this.say(message);
+  }
+
+  private placePick(type: WorkbenchPartType, index: number) {
+    if (!canPlacePickBox(this.state, index)) {
+      this.say('확정 상자는 빈칸에만 놓을 수 있어요. 노랗거나 초록으로 표시된 칸을 누르세요.', 'error');
+      return;
+    }
+    const events = placePickBox(this.state, this.hooks.orders, type, index);
+    if (!events) return;
+    this.pickType = null;
+    this.selected = NONE;
+    this.commit(events);
+  }
+
   // ── 체력 카드: 소진 안내(Lab #263 A안) + 보상형 광고 충전(#92) ──
   // 체력 0에서 상자를 누르거나 체력 표시를 누르면 엽니다. 회복 시간과(소진이면) 체력 없이 할 수 있는 일을 알려 주고,
   // 광고를 쓸 수 있는 환경이면 광고 충전 버튼을 둡니다.
   private onEnergyTap() {
-    if (this.blockedByDay() || this.adOverlay) return;
+    if (this.blockedByDay() || this.adOverlay || this.pickCard) return;
+    this.exitPickMode();
     this.hooks.onSfx?.('tap');
     this.openEnergyCard();
   }
@@ -743,9 +881,11 @@ class MergeWorkbenchScene extends Phaser.Scene {
     ]).setDepth(60);
     let y = top + 178;
     if (empty) {
-      card.add(wrapped(y, mergeable
-        ? '합성은 체력 없이 계속할 수 있어요. 상자 없이 3연쇄 합성하면 무료 상자를 받아요.'
-        : '지금은 합성할 쌍이 없어요. 회복을 기다리는 동안 홈에서 도감과 강화를 둘러보세요.', mergeable ? SUCCESS : MUTED));
+      card.add(wrapped(y, this.state.pickBoxes > 0
+        ? `확정 상자 ${this.state.pickBoxes}개는 체력 없이 쓸 수 있어요. 아래 보너스 칸을 눌러 보세요.`
+        : mergeable
+          ? `합성은 체력 없이 계속할 수 있어요. 합성 ${BONUS_FREE_BOX_AT}회마다 무료 상자를 받아요.`
+          : '지금은 합성할 쌍이 없어요. 회복을 기다리는 동안 홈에서 도감과 강화를 둘러보세요.', mergeable || this.state.pickBoxes > 0 ? SUCCESS : MUTED));
       y += 48;
     }
     if (ad) {
@@ -865,6 +1005,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private onUndo() {
     if (this.blockedByDay()) return;
     this.cancelDrag();
+    this.exitPickMode();
     if (!undoLast(this.state)) {
       this.say('되돌릴 행동이 없어요. 상자를 열거나 납품하면 되돌리기 기록이 지워져요.', 'error');
       return;
@@ -876,12 +1017,13 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.shownInstalled = { ...this.state.installed };
     this.hooks.onChange();
     this.renderAll();
-    this.say('직전 행동을 되돌렸어요. 자동 장착·연쇄 보너스도 함께 되돌아가요.');
+    this.say('직전 행동을 되돌렸어요. 자동 장착·합성 보너스·확정 상자도 함께 되돌아가요.');
   }
 
   private onReturn() {
     if (this.blockedByDay()) return;
     this.cancelDrag();
+    this.exitPickMode();
     const part = this.selected === NONE ? null : this.state.board[this.selected];
     if (!part) {
       this.say('반품할 부품을 먼저 눌러 선택하세요.', 'error');
@@ -929,16 +1071,17 @@ class MergeWorkbenchScene extends Phaser.Scene {
     }
     const bonus = events.find((event) => event.type === 'bonus');
     if (bonus) return bonus.bonus === 'free-box'
-      ? `${COMBO_FREE_BOX}연쇄! 다음 상자는 체력 없이 열려요.`
-      : `${COMBO_GUARANTEE}연쇄! 다음 상자에서 필요한 부품이 확정으로 나와요.`;
+      ? `합성 ${BONUS_FREE_BOX_AT}회! 무료 상자를 받았어요. 다음 상자는 체력 없이 열려요.`
+      : `합성 ${BONUS_PICK_BOX_AT}회! 확정 상자를 받았어요. 아래 보너스 칸을 눌러 원하는 부품을 원하는 칸에 놓으세요.`;
     const installed = events.filter((event): event is Extract<WorkbenchEvent, { type: 'installed' }> => event.type === 'installed');
     if (installed.length > 0) return `${installed.map((event) => PART_NAMES[event.part.type]).join('·')} 완성 · 자전거에 바로 장착했어요.`;
     const merged = events.find((event) => event.type === 'merged');
-    if (merged) return merged.combo >= 2
-      ? `${partLabel(merged.part)} 합성 · ${merged.combo}연쇄 중! 상자를 열면 연쇄가 끊겨요.`
-      : `${partLabel(merged.part)} 합성 완료.`;
+    if (merged) return `${partLabel(merged.part)} 합성 완료 · ${merged.count < BONUS_FREE_BOX_AT
+      ? `무료 상자까지 ${BONUS_FREE_BOX_AT - merged.count}회`
+      : `확정 상자까지 ${BONUS_PICK_BOX_AT - merged.count}회`}`;
     const placed = events.find((event) => event.type === 'placed');
-    if (placed) return `${placed.free ? '무료 상자 · ' : ''}${placed.guaranteed ? '확정 상자 · ' : ''}${partLabel(placed.part)} 입고 · 점선이 다음 자리예요.`;
+    if (placed?.picked) return `확정 상자 · ${partLabel(placed.part)}를 놓았어요. 잘못 놓았으면 ↶ 되돌리기로 무를 수 있어요.`;
+    if (placed) return `${placed.free ? '무료 상자 · ' : ''}${partLabel(placed.part)} 입고 · 점선이 다음 자리예요.`;
     return '';
   }
 
@@ -980,7 +1123,9 @@ class MergeWorkbenchScene extends Phaser.Scene {
       if (!this.alive || generation !== this.generation) return;
       if (event.type === 'placed') {
         this.hooks.onSfx?.('parcel');
-        const ghost = this.track(this.makePiece(event.part, { x: BOX.x - BOX.w / 2 + 26, y: BOX.y }).setDepth(30).setScale(0.45));
+        // 확정 상자는 합성 보너스 칸에서, 일반·무료 상자는 부품 상자 버튼에서 날아옵니다.
+        const origin = event.picked ? BONUS : { x: BOX.x - BOX.w / 2 + 26, y: BOX.y };
+        const ghost = this.track(this.makePiece(event.part, origin).setDepth(30).setScale(0.45));
         const to = cellCenter(event.index);
         await this.tween({ targets: ghost, x: to.x, y: to.y, scale: 1, duration: 300, ease: 'Back.easeOut' });
         this.untrack(ghost);
@@ -1000,11 +1145,11 @@ class MergeWorkbenchScene extends Phaser.Scene {
         target.setScale(1.28);
         await this.tween({ targets: target, scale: 1, duration: 200, ease: 'Back.easeOut' });
         if (!piece) this.untrack(target);
-        if (event.combo >= 2) this.floatText(to.x, to.y - 30, `${event.combo}연쇄!`, event.combo >= COMBO_FREE_BOX ? '#dff0d0' : CREAM_TEXT);
+        this.floatText(to.x, to.y - 30, `보너스 ${event.count}/${BONUS_PICK_BOX_AT}`, event.count >= BONUS_FREE_BOX_AT ? '#dff0d0' : CREAM_TEXT);
       } else if (event.type === 'bonus') {
         this.hooks.onSfx?.('reward');
-        if (event.bonus === 'free-box') this.banner(`${COMBO_FREE_BOX}연쇄! 다음 상자 무료`, GREEN, CREAM_TEXT);
-        else this.banner(`${COMBO_GUARANTEE}연쇄! 다음 상자 필수 부품 확정`, AMBER, INK);
+        if (event.bonus === 'free-box') this.banner(`합성 ${BONUS_FREE_BOX_AT}회! 무료 상자 +1`, GREEN, CREAM_TEXT);
+        else this.banner(`합성 ${BONUS_PICK_BOX_AT}회! 확정 상자 +1`, AMBER, INK);
       } else if (event.type === 'installed') {
         // 게임 화면 B안과 같은 장착 연출: 부품 색 사각형이 자전거 부위로 날아갑니다.
         const from = cellCenter(event.from);

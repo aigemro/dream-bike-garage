@@ -105,7 +105,7 @@ describe('작업대 순번과 영업일 맞추기', () => {
     // 손상된 저장처럼 순번만 앞서가고 이전 주문 사양 기준의 장착 상태가 남은 상황
     state.workbench.order = 4;
     state.workbench.installed = { frame: true, wheel: false, drivetrain: true, handlebar: true };
-    state.workbench.undo = { board: [...state.workbench.board], installed: { ...state.workbench.installed }, order: 3, combo: 0, freeBoxes: 0, guarantees: 0 };
+    state.workbench.undo = { board: [...state.workbench.board], installed: { ...state.workbench.installed }, order: 3, bonusCount: 0, freeBoxes: 0, pickBoxes: 0 };
     const nextDay = createReadyDay(2);
     expect(alignWorkbenchToDay(state.workbench, nextDay)).toBe(true);
     expect(state.workbench.order).toBe(firstSequenceOfDay(2));

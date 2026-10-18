@@ -1,10 +1,10 @@
 // 첫 플레이 안내 오버레이 (출시 적용): 따뜻한 픽셀 정비사 말풍선형 (390×810)
 // 머지 작업대(머지 코어 E안) 화면의 정적 모사 위에, 정비사 두리의 말풍선과
-// 스포트라이트 강조로 첫 영업 6단계(주문 → 상자 → 합성 → 연쇄 → 장착·납품 → 하루 일정)를 안내한다.
+// 스포트라이트 강조로 첫 영업 6단계(주문 → 상자 → 합성 → 합성 보너스 → 장착·납품 → 하루 일정)를 안내한다.
 // 안내 문구·발동 조건 규칙은 #115 담당이며 여기서는 결정하지 않는다.
 import Phaser from 'phaser';
 import { drawPixelBike, drawPixelPartIcon, makeWarmColorway, WARM_PART_COLORS } from './bike-pixel-sprite';
-import { COMBO_FREE_BOX, COMBO_GUARANTEE, starterBoard, nextIntakeSlot, WORKBENCH_COLUMNS, WORKBENCH_ROWS } from '../../domain/merge-workbench';
+import { BONUS_FREE_BOX_AT, BONUS_PICK_BOX_AT, starterBoard, nextIntakeSlot, WORKBENCH_COLUMNS, WORKBENCH_ROWS } from '../../domain/merge-workbench';
 import { orderMetaAt } from './meta-progress';
 import { drawFieldCharacter } from './art-character-pixel';
 
@@ -33,7 +33,7 @@ const STEPS: GuideStep[] = [
   { target: { x: 8, y: 66, w: 374, h: 144 }, title: '1 · 주문 확인', text: '고객 주문이 도착했어요!\n필요한 부품 4종과 레벨을\n먼저 확인해 주세요.', bubbleTop: false },
   { target: { x: 14, y: 682, w: 362, h: 52 }, title: '2 · 부품 상자', text: '상자를 열면 알바 체력 1을 쓰고\n점선 칸에 부품이 들어와요.\n가운데부터 바깥으로 채워져요.', bubbleTop: true },
   { target: { x: 31, y: 226, w: 328, h: 380 }, title: '3 · 이웃 합성', text: '부품은 옮길 수 없어요.\n맞닿은 같은 부품 2개를\n차례로 누르면 합성돼요.', bubbleTop: false },
-  { target: { x: 198, y: 736, w: 176, h: 52 }, title: '4 · 연쇄 보너스', text: '상자 없이 이어서 3번 합성하면\n무료 상자, 5번이면 필요한\n부품이 확정으로 나와요!', bubbleTop: true },
+  { target: { x: 198, y: 736, w: 176, h: 52 }, title: '4 · 합성 보너스', text: '합성 3번째에 무료 상자,\n5번째엔 원하는 부품을 원하는\n칸에 놓는 확정 상자를 받아요!', bubbleTop: true },
   { target: { x: 210, y: 80, w: 172, h: 110 }, title: '5 · 장착·납품', text: '목표 레벨이 되면 바로 장착!\n4종을 모두 달면 납품되고\n다음 주문이 이어져요.', bubbleTop: false },
   // 6단계 강조 영역은 건너뛰기 버튼(테두리 포함 y 4~28) 아래에서 시작해, 프레임 윗변(y 28~32)이 버튼에 가려지지 않게 둡니다.
   { target: { x: 4, y: 33, w: 382, h: 29 }, title: '6 · 하루 일정', text: '주문 3건을 납품하면 오늘\n영업이 끝나고 정산해요. 체력이\n떨어지면 회복 후 이어서 해요.', bubbleTop: false },
@@ -141,12 +141,12 @@ class GuideOverlayScene extends Phaser.Scene {
     this.drawBoxIcon(slotX, slotY - 6, 1.5).setDepth(3);
     this.add.text(slotX, slotY + 12, '다음 입고', textStyle(9, MUTED)).setOrigin(0.5).setDepth(3);
 
-    // 하단 선반: 부품 상자·되돌리기·반품(1행) / 알바 체력·연쇄 합성(2행)
+    // 하단 선반: 부품 상자·되돌리기·반품(1행) / 알바 체력·합성 보너스(2행)
     this.add.rectangle(195, 734, 374, 136, CREAM).setStrokeStyle(4, BORDER).setDepth(2);
     this.add.rectangle(96, 668, 152, 22, BROWN).setDepth(3);
     this.add.text(28, 661, '부품 상자 · PARTS BOX', textStyle(10, CREAM_TEXT)).setDepth(4);
     this.add.rectangle(282, 668, 200, 22, BROWN).setStrokeStyle(2, BORDER).setDepth(3);
-    this.add.text(282, 668, `${COMBO_FREE_BOX}연쇄 무료 상자 · ${COMBO_GUARANTEE}연쇄 필수 부품`, textStyle(10, CREAM_TEXT)).setOrigin(0.5).setDepth(4);
+    this.add.text(282, 668, `합성 ${BONUS_FREE_BOX_AT}회 무료 · ${BONUS_PICK_BOX_AT}회 확정 상자`, textStyle(10, CREAM_TEXT)).setOrigin(0.5).setDepth(4);
     this.add.rectangle(136, 708, 240, 48, GOLD).setStrokeStyle(3, BROWN).setDepth(3);
     this.drawBoxIcon(42, 708, 2).setDepth(4);
     this.add.text(64, 691, '부품 상자 열기', textStyle(12, INK)).setDepth(4);
@@ -163,10 +163,10 @@ class GuideOverlayScene extends Phaser.Scene {
     this.add.rectangle(24, 778, 160, 5, DARK_WOOD).setOrigin(0, 0.5).setDepth(4);
     this.add.rectangle(24, 778, 160, 5, GREEN).setOrigin(0, 0.5).setDepth(5);
     this.add.rectangle(286, 762, 172, 48, GOLD).setStrokeStyle(2, BROWN).setDepth(3);
-    this.add.text(206, 744, '연쇄 합성 0', textStyle(11, INK)).setDepth(4);
-    this.add.text(206, 760, '무료 상자 0 · 확정 0', textStyle(10, MUTED)).setDepth(4);
-    for (let i = 0; i < COMBO_GUARANTEE; i += 1) {
-      const milestone = i === COMBO_FREE_BOX - 1 || i === COMBO_GUARANTEE - 1;
+    this.add.text(206, 744, `합성 보너스 0/${BONUS_PICK_BOX_AT}`, textStyle(11, INK)).setDepth(4);
+    this.add.text(206, 760, `무료 상자 0 · 무료까지 ${BONUS_FREE_BOX_AT}회`, textStyle(10, MUTED)).setDepth(4);
+    for (let i = 0; i < BONUS_PICK_BOX_AT; i += 1) {
+      const milestone = i === BONUS_FREE_BOX_AT - 1 || i === BONUS_PICK_BOX_AT - 1;
       this.add.rectangle(306 + i * 14, 751, milestone ? 11 : 9, milestone ? 11 : 9, CREAM).setStrokeStyle(2, BORDER).setDepth(4);
     }
   }

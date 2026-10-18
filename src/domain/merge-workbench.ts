@@ -2,7 +2,9 @@
 // - 부품 상자를 열면 보드 가운데에서 바깥 순서로 정해진 다음 칸에 부품 1개가 들어옵니다.
 // - 부품은 옮길 수 없고, 상하좌우로 맞닿은 같은 종류·같은 레벨 2개를 합성합니다.
 // - 주문 요구 레벨 이상 부품이 생기면 바로 장착하고, 4종이 모두 장착되면 그 자리에서 납품을 확정합니다.
-// - 상자는 알바 체력 1을 쓰며, 체력은 실제 시간으로 회복합니다. 연쇄 합성 보너스로 무료 상자·필수 부품 확정을 받습니다.
+// - 상자는 알바 체력 1을 쓰며, 체력은 실제 시간으로 회복합니다.
+// - 합성 보너스: 합성에 성공할 때마다 1씩 세어 3번째에 무료 상자, 5번째에 확정 상자(부품 종류·칸을 직접 고름)를 받고 다시 0부터 셉니다.
+//   상자를 열어도 끊기지 않습니다(이전 '연쇄' 규칙은 상자를 열면 끊겨 실제 플레이에서 거의 터지지 않았음).
 // 코인·Day 통계는 이 모듈이 다루지 않습니다. 호출 측이 'delivered' 이벤트를 받아 한 번만 반영합니다.
 
 export const WORKBENCH_PART_TYPES = ['frame', 'wheel', 'drivetrain', 'handlebar'] as const;
@@ -16,9 +18,11 @@ export const WORKBENCH_CELLS = WORKBENCH_COLUMNS * WORKBENCH_ROWS;
 export const WORKBENCH_MAX_LEVEL = 4;
 export const ENERGY_MAX = 30;
 export const ENERGY_RECOVERY_MS = 10 * 60 * 1000;
-// 상자를 열지 않고 이어서 합성한 횟수(연쇄)가 기준에 닿으면 보너스를 받습니다.
-export const COMBO_FREE_BOX = 3;
-export const COMBO_GUARANTEE = 5;
+// 합성 성공 횟수가 기준에 닿으면 보너스를 받습니다. 확정 상자 기준(5)에 닿으면 다시 0부터 셉니다.
+export const BONUS_FREE_BOX_AT = 3;
+export const BONUS_PICK_BOX_AT = 5;
+// 확정 상자로 놓는 부품 레벨
+export const PICK_BOX_LEVEL = 1;
 // 미장착 부품이 이 횟수만큼 연속으로 안 나오면 다음 상자에서 미장착 부품을 보장합니다.
 const MISS_LIMIT = 4;
 
@@ -38,9 +42,11 @@ export type WorkbenchSnapshot = {
   board: WorkbenchCell[];
   installed: Installed;
   order: number;
-  combo: number;
+  // 합성 보너스 진행(0 ~ BONUS_PICK_BOX_AT − 1)
+  bonusCount: number;
   freeBoxes: number;
-  guarantees: number;
+  // 확정 상자: 부품 종류와 놓을 빈칸을 플레이어가 고릅니다.
+  pickBoxes: number;
 };
 
 export type WorkbenchState = WorkbenchSnapshot & {
@@ -53,9 +59,11 @@ export type WorkbenchState = WorkbenchSnapshot & {
 };
 
 export type WorkbenchEvent =
-  | { type: 'placed'; index: number; part: WorkbenchPart; free: boolean; guaranteed: boolean }
-  | { type: 'merged'; from: number; to: number; part: WorkbenchPart; combo: number }
-  | { type: 'bonus'; bonus: 'free-box' | 'guarantee'; combo: number }
+  // free: 무료 상자로 열었음, picked: 확정 상자로 직접 놓았음
+  | { type: 'placed'; index: number; part: WorkbenchPart; free: boolean; picked: boolean }
+  // count: 이 합성까지 센 합성 보너스 진행(1 ~ BONUS_PICK_BOX_AT)
+  | { type: 'merged'; from: number; to: number; part: WorkbenchPart; count: number }
+  | { type: 'bonus'; bonus: 'free-box' | 'pick-box'; count: number }
   | { type: 'installed'; from: number; part: WorkbenchPart; order: number }
   // order: 납품한 주문의 순번(누적). orderIndex는 주문 목록 안의 위치입니다.
   | { type: 'delivered'; order: number; orderIndex: number; reward: number };
@@ -119,9 +127,9 @@ export function createWorkbench(orders: WorkbenchOrders, now: number, order = 0)
     board: starterBoard(),
     installed: noneInstalled(),
     order: Math.max(0, Math.floor(order)),
-    combo: 0,
+    bonusCount: 0,
     freeBoxes: 0,
-    guarantees: 0,
+    pickBoxes: 0,
     energy: ENERGY_MAX,
     energyAnchor: now,
     misses: 0,
@@ -150,16 +158,15 @@ export function msUntilNextEnergy(state: WorkbenchState, now: number): number {
 
 /**
  * 입고 부품 추첨: Lv.1 80%·Lv.2 20%, 70%는 아직 장착하지 않은 부품에서 고릅니다.
- * 미장착 부품이 MISS_LIMIT회 연속 안 나왔거나 확정 보너스가 있으면 미장착 부품을 보장합니다.
+ * 미장착 부품이 MISS_LIMIT회 연속 안 나왔으면 미장착 부품을 보장합니다.
  */
-export function rollPart(installed: Installed, misses: number, rng: () => number, guaranteed: boolean) {
+export function rollPart(installed: Installed, misses: number, rng: () => number) {
   const needs = WORKBENCH_PART_TYPES.filter((type) => !installed[type]);
-  const applied = guaranteed && needs.length > 0;
-  const focus = needs.length > 0 && (applied || misses >= MISS_LIMIT || rng() < 0.7);
+  const focus = needs.length > 0 && (misses >= MISS_LIMIT || rng() < 0.7);
   const pool = focus ? needs : WORKBENCH_PART_TYPES;
   const type = pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))];
   const level = rng() < 0.2 ? 2 : 1;
-  return { part: { type, level }, misses: needs.includes(type) ? 0 : misses + 1, guaranteed: applied };
+  return { part: { type, level }, misses: needs.includes(type) ? 0 : misses + 1 };
 }
 
 // 요구 레벨 이상 부품 중 가장 낮은 레벨을 먼저 쓰고, 레벨이 같으면 칸 순서가 빠른 부품을 씁니다.
@@ -217,20 +224,39 @@ export function openPartBox(state: WorkbenchState, orders: WorkbenchOrders, now:
   recoverEnergy(state, now);
   const index = nextIntakeSlot(state.board);
   if (supplyBlock(state)) return null;
-  const roll = rollPart(state.installed, state.misses, rng, state.guarantees > 0);
+  const roll = rollPart(state.installed, state.misses, rng);
   const free = state.freeBoxes > 0;
   if (free) state.freeBoxes -= 1;
   else {
     if (state.energy >= ENERGY_MAX) state.energyAnchor = now;
     state.energy -= 1;
   }
-  if (roll.guaranteed) state.guarantees -= 1;
   state.misses = roll.misses;
   state.board[index] = roll.part;
-  state.combo = 0;
   state.undo = null;
-  const events: WorkbenchEvent[] = [{ type: 'placed', index, part: { ...roll.part }, free, guaranteed: roll.guaranteed }];
+  const events: WorkbenchEvent[] = [{ type: 'placed', index, part: { ...roll.part }, free, picked: false }];
   settle(state, orders, events);
+  return events;
+}
+
+/** 확정 상자를 놓을 수 있는 칸(남은 확정 상자가 있고 빈칸) */
+export function canPlacePickBox(state: WorkbenchState, index: number): boolean {
+  return state.pickBoxes > 0 && validCell(index) && !state.board[index];
+}
+
+/**
+ * 확정 상자 1개로 고른 종류의 부품(PICK_BOX_LEVEL)을 고른 빈칸에 놓습니다. 체력은 쓰지 않습니다.
+ * 잘못 놓았을 때를 위해 되돌리기 대상에 넣습니다(납품이 확정되면 되돌릴 수 없음). 놓을 수 없으면 null
+ */
+export function placePickBox(state: WorkbenchState, orders: WorkbenchOrders, type: WorkbenchPartType, index: number): WorkbenchEvent[] | null {
+  if (!WORKBENCH_PART_TYPES.includes(type) || !canPlacePickBox(state, index)) return null;
+  state.undo = snapshot(state);
+  const part: WorkbenchPart = { type, level: PICK_BOX_LEVEL };
+  state.pickBoxes -= 1;
+  state.board[index] = part;
+  const events: WorkbenchEvent[] = [{ type: 'placed', index, part: { ...part }, free: false, picked: true }];
+  settle(state, orders, events);
+  closeUndoIfDelivered(state, events);
   return events;
 }
 
@@ -266,35 +292,36 @@ function snapshot(state: WorkbenchSnapshot): WorkbenchSnapshot {
     board: state.board.map((part) => (part ? { ...part } : null)),
     installed: { ...state.installed },
     order: state.order,
-    combo: state.combo,
+    bonusCount: state.bonusCount,
     freeBoxes: state.freeBoxes,
-    guarantees: state.guarantees,
+    pickBoxes: state.pickBoxes,
   };
 }
 
-/** 이웃한 같은 부품 2개를 대상 칸(to)에서 합성합니다. 연쇄 기준에 닿으면 보너스를 지급합니다. 합성할 수 없으면 null */
+/** 이웃한 같은 부품 2개를 대상 칸(to)에서 합성합니다. 합성 보너스 기준에 닿으면 보너스를 지급합니다. 합성할 수 없으면 null */
 export function mergeParts(state: WorkbenchState, orders: WorkbenchOrders, from: number, to: number): WorkbenchEvent[] | null {
   if (!canMerge(state.board, from, to)) return null;
   state.undo = snapshot(state);
   const part = { type: state.board[from]!.type, level: state.board[from]!.level + 1 };
   state.board[to] = part;
   state.board[from] = null;
-  state.combo += 1;
-  const events: WorkbenchEvent[] = [{ type: 'merged', from, to, part: { ...part }, combo: state.combo }];
-  if (state.combo === COMBO_FREE_BOX) {
+  const count = state.bonusCount + 1;
+  const events: WorkbenchEvent[] = [{ type: 'merged', from, to, part: { ...part }, count }];
+  if (count === BONUS_FREE_BOX_AT) {
     state.freeBoxes += 1;
-    events.push({ type: 'bonus', bonus: 'free-box', combo: state.combo });
+    events.push({ type: 'bonus', bonus: 'free-box', count });
   }
-  if (state.combo === COMBO_GUARANTEE) {
-    state.guarantees += 1;
-    events.push({ type: 'bonus', bonus: 'guarantee', combo: state.combo });
+  if (count >= BONUS_PICK_BOX_AT) {
+    state.pickBoxes += 1;
+    events.push({ type: 'bonus', bonus: 'pick-box', count });
   }
+  state.bonusCount = count % BONUS_PICK_BOX_AT;
   settle(state, orders, events);
   closeUndoIfDelivered(state, events);
   return events;
 }
 
-/** 부품을 버려 자리를 만듭니다. 체력은 돌려주지 않고 연쇄는 끊지 않습니다. */
+/** 부품을 버려 자리를 만듭니다. 체력은 돌려주지 않고 합성 보너스 진행은 그대로입니다. */
 export function discardPart(state: WorkbenchState, index: number): boolean {
   if (!validCell(index) || !state.board[index]) return false;
   state.undo = snapshot(state);
@@ -302,7 +329,7 @@ export function discardPart(state: WorkbenchState, index: number): boolean {
   return true;
 }
 
-/** 직전 합성·반품 1회를 장착·연쇄 보너스까지 함께 되돌립니다. 새 상자를 열거나 납품하면 되돌릴 수 없습니다. */
+/** 직전 합성·반품·확정 상자 배치 1회를 장착·합성 보너스까지 함께 되돌립니다. 새 상자를 열거나 납품하면 되돌릴 수 없습니다. */
 export function undoLast(state: WorkbenchState): boolean {
   if (!state.undo) return false;
   Object.assign(state, snapshot(state.undo));
@@ -327,7 +354,18 @@ function validSnapshot(value: unknown): value is WorkbenchSnapshot {
   return Array.isArray(state.board) && state.board.length === WORKBENCH_CELLS && state.board.every(validPart)
     && !!state.installed && typeof state.installed === 'object'
     && WORKBENCH_PART_TYPES.every((type) => typeof state.installed[type] === 'boolean')
-    && isInteger(state.order, 0) && isInteger(state.combo, 0) && isInteger(state.freeBoxes, 0) && isInteger(state.guarantees, 0);
+    && isInteger(state.order, 0) && isInteger(state.bonusCount, 0, BONUS_PICK_BOX_AT - 1)
+    && isInteger(state.freeBoxes, 0) && isInteger(state.pickBoxes, 0);
+}
+
+// 이전 저장(연쇄 규칙: combo·guarantees)을 합성 보너스 규칙으로 옮깁니다.
+// 연쇄 진행은 새 규칙과 뜻이 달라 0부터 세고, 받아 둔 필수 부품 확정은 확정 상자로 바꿔 줍니다.
+function migrateLegacy(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const legacy = value as Record<string, unknown>;
+  if ('bonusCount' in legacy || !('combo' in legacy)) return value;
+  const { combo: _combo, guarantees, ...rest } = legacy;
+  return { ...rest, bonusCount: 0, pickBoxes: guarantees };
 }
 
 /**
@@ -336,7 +374,8 @@ function validSnapshot(value: unknown): value is WorkbenchSnapshot {
  */
 export function parseWorkbench(saved: unknown, orders: WorkbenchOrders, now: number, fallbackOrder = 0): WorkbenchState {
   try {
-    const value = (typeof saved === 'string' ? JSON.parse(saved) : saved) as Partial<WorkbenchState> | null | undefined;
+    const parsed = migrateLegacy(typeof saved === 'string' ? JSON.parse(saved) : saved) as Partial<WorkbenchState> | null | undefined;
+    const value = parsed && typeof parsed === 'object' ? { ...parsed, undo: migrateLegacy(parsed.undo) as WorkbenchSnapshot | null } : parsed;
     if (!value || value.version !== 1 || !validSnapshot(value as unknown)
       || !isInteger(value.energy, 0, ENERGY_MAX) || !isInteger(value.energyAnchor, 0) || !isInteger(value.misses, 0)) {
       return createWorkbench(orders, now, fallbackOrder);
