@@ -35,6 +35,7 @@ import {
   type WorkbenchPartType,
   type WorkbenchState,
 } from '../../domain/merge-workbench';
+import { recommendMerge, shouldShowHint, type MergeHintReason } from '../../domain/merge-assist';
 
 const FONT = '"Arial Rounded MT Bold", "Noto Sans KR", sans-serif';
 const INK = '#3b2531';
@@ -118,6 +119,14 @@ function clockLabel(ms: number) {
 
 const partLabel = (part: WorkbenchPart) => `${PART_NAMES[part.type]} Lv.${part.level}`;
 
+// 합성 추천 안내 문구: 추천 쌍을 먼저 합치면 무엇이 좋은지
+const HINT_EFFECT: Record<MergeHintReason, string> = {
+  deliver: '납품까지 이어져요',
+  install: '바로 장착돼요',
+  pairs: '다음 합성 자리가 남아요',
+  space: '칸이 하나 비어요',
+};
+
 class MergeWorkbenchScene extends Phaser.Scene {
   constructor(private readonly hooks: MergeWorkbenchScreenHooks) { super('merge-workbench'); }
 
@@ -126,6 +135,9 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private selected = NONE;
   private drag?: Drag;
   private returnConfirmUntil = 0;
+  // 합성 추천(Lab #264 B안): 마지막 입력 시각과 지금 보여 주는 중인지
+  private lastInputAt = 0;
+  private hintShown = false;
   // 연출 순서: 상태는 즉시 바뀌고, 주문 카드는 이벤트 연출을 따라 늦게 바뀝니다.
   private queue: Promise<void> = Promise.resolve();
   private generation = 0;
@@ -148,6 +160,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private nextMarker!: Phaser.GameObjects.Container;
   private highlight!: Phaser.GameObjects.Graphics;
   private dropHint!: Phaser.GameObjects.Graphics;
+  private mergeHint!: Phaser.GameObjects.Graphics;
   private info!: Phaser.GameObjects.Text;
   private cancelButton!: Phaser.GameObjects.Rectangle;
   private cancelLabel!: Phaser.GameObjects.Text;
@@ -182,8 +195,11 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.input.on('pointermove', this.onPointerMove, this);
     this.input.on('pointerup', this.onPointerUp, this);
     this.input.on('gameout', () => this.cancelDrag());
-    // 체력 회복 표시는 1초마다 갱신합니다.
-    this.time.addEvent({ delay: 1000, loop: true, callback: () => this.tickEnergy() });
+    // 어떤 입력이든 들어오면 합성 추천을 지우고 무입력 시간을 다시 셉니다.
+    this.input.on('pointerdown', () => this.markInput());
+    this.lastInputAt = performance.now();
+    // 체력 회복 표시와 합성 추천 시점 확인은 1초마다 합니다.
+    this.time.addEvent({ delay: 1000, loop: true, callback: () => { this.tickEnergy(); this.maybeHint(); } });
     this.events.once('shutdown', () => this.shutdown());
     this.events.once('destroy', () => this.shutdown());
     this.renderAll();
@@ -284,6 +300,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
     if (!this.reducedMotion) this.tweens.add({ targets: this.nextMarker, alpha: { from: 1, to: 0.45 }, duration: 700, yoyo: true, repeat: -1 });
     this.highlight = this.add.graphics().setDepth(5);
     this.dropHint = this.add.graphics().setDepth(6);
+    this.mergeHint = this.add.graphics().setDepth(7);
 
     // 안내 문구 11px: 줄바꿈 폭 258은 오른쪽 '× 선택 취소' 버튼 왼쪽 가장자리(282)와 12px 이상 띄우기 위한 값이고,
     // 시작 y는 보드 테두리 아래 4px 여백을 두되 3줄까지 선반 상단(668-11)에 닿지 않도록 줄 간격 2를 유지합니다.
@@ -486,6 +503,40 @@ class MergeWorkbenchScene extends Phaser.Scene {
     recoverEnergy(this.state, Date.now());
     if (before !== this.state.energy) this.hooks.onChange();
     this.renderShelf();
+  }
+
+  // ── 합성 추천 (Lab #264 B안) ──
+  // 선택 중이 아니고, 빈칸이 적거나 한동안 입력이 없으면 먼저 합칠 쌍 1개를 노란 테두리로 반짝입니다.
+  // 추천은 강제가 아니며, 아무 입력이나 하면 사라지고 조건이 맞으면 다시 나타납니다.
+  // 무입력 시간은 performance.now()로 잽니다(create 시점에는 Phaser 장면 시계가 아직 0이라 기준이 어긋남).
+  private markInput() {
+    this.lastInputAt = performance.now();
+    this.clearHint();
+  }
+
+  private maybeHint() {
+    if (!this.alive || this.hintShown || this.drag || !this.hooks.canPlay()) return;
+    const selecting = this.selected !== NONE && !!this.state.board[this.selected];
+    if (!shouldShowHint(this.state, performance.now() - this.lastInputAt, selecting)) return;
+    const pick = recommendMerge(this.state, this.hooks.orders);
+    if (!pick) return;
+    this.hintShown = true;
+    this.mergeHint.clear().setAlpha(1);
+    for (const index of [pick.from, pick.to]) {
+      const at = cellCenter(index);
+      // 밝은 칸 바탕에서도 보이도록 잉크색 바깥선 안쪽에 노란 테두리를 겹칩니다.
+      this.mergeHint.lineStyle(6, BORDER, 1).strokeRect(at.x - 26, at.y - 26, 52, 52);
+      this.mergeHint.lineStyle(4, AMBER, 1).strokeRect(at.x - 26, at.y - 26, 52, 52);
+    }
+    if (!this.reducedMotion) this.tweens.add({ targets: this.mergeHint, alpha: { from: 1, to: 0.45 }, duration: 520, yoyo: true, repeat: -1 });
+    this.setInfo(`추천 · 노랗게 반짝이는 ${partLabel(pick.part)} 두 개를 먼저 합치면 ${HINT_EFFECT[pick.reason]}.`);
+  }
+
+  private clearHint() {
+    if (!this.hintShown) return;
+    this.hintShown = false;
+    this.tweens.killTweensOf(this.mergeHint);
+    this.mergeHint.clear().setAlpha(1);
   }
 
   // ── 입력: 탭 선택 → 대상 탭, 드래그 놓기도 같은 규칙 ──
