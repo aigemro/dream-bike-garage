@@ -11,6 +11,7 @@ import {
   BONUS_FREE_BOX_AT,
   BONUS_PICK_BOX_AT,
   ENERGY_MAX,
+  LEVEL2_BOX_RATE,
   PICK_BOX_LEVEL,
   WORKBENCH_COLUMNS,
   WORKBENCH_PART_TYPES,
@@ -33,6 +34,7 @@ import {
   supplyBlock,
   undoLast,
   type Installed,
+  type SupplyOptions,
   type WorkbenchEvent,
   orderListOf,
   type WorkbenchOrders,
@@ -114,7 +116,10 @@ export type MergeWorkbenchScreenHooks = {
   canPlay: () => boolean;
   onChange: () => void;
   // 납품 1건이 확정될 때마다 정확히 한 번 호출합니다. 코인·이해도·Day 통계는 컨트롤러가 반영합니다.
-  onDelivered: (delivery: { orderIndex: number; reward: number }) => void;
+  // Garage 효과로 붙은 손님 팁을 돌려주면 납품 도장·안내에 함께 보여 줍니다 (#109).
+  onDelivered: (delivery: { orderIndex: number; reward: number }) => { tip?: number } | void;
+  // 상자 입고에 반영할 Garage 효과(Lv.2 입고 확률). 없으면 기본 확률입니다 (#109).
+  supply?: () => SupplyOptions;
   onHome: () => void;
   onSfx?: (event: ReleaseSfxEvent) => void;
   rewardedAd?: WorkbenchRewardedAd;
@@ -183,6 +188,8 @@ class MergeWorkbenchScene extends Phaser.Scene {
   private arriving = new Set<number>();
   private fx = new Set<Phaser.GameObjects.GameObject>();
   private pieces = new Map<number, Phaser.GameObjects.Container>();
+  // 납품 순번별로 붙은 손님 팁(연출 표시용, #109)
+  private tipByOrder = new Map<number, number>();
 
   private dayBadge!: Phaser.GameObjects.Text;
   private dayOrders!: Phaser.GameObjects.Text;
@@ -545,7 +552,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
         ? '작업대가 가득 찼어요 · 반품으로 자리 확보'
         : block === 'energy'
           ? '체력 소진 · 눌러서 회복 안내 보기'
-          : free ? '무료 상자 · 체력 소모 없음' : '점선 칸에 자동 배치')
+          : free ? `무료 상자 · 체력 소모 없음${this.supplyLabel()}` : `점선 칸에 자동 배치${this.supplyLabel()}`)
       .setColor(block ? ALERT : free ? SUCCESS : MUTED);
     this.boxCost.setText(free ? `무료 ×${this.state.freeBoxes}` : '⚡ −1').setColor(free ? SUCCESS : ALERT);
 
@@ -560,6 +567,12 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.energyFill.setScale(this.state.energy / ENERGY_MAX, 1);
     this.energyAdTag.setVisible(this.hooks.rewardedAd?.offer().available === true);
     this.renderBonus();
+  }
+
+  // Garage 효과로 Lv.2 입고 확률이 기본보다 높으면 상자 설명에 함께 보여 줍니다 (#109)
+  private supplyLabel() {
+    const rate = this.hooks.supply?.().level2Rate;
+    return rate !== undefined && rate > LEVEL2_BOX_RATE + 1e-9 ? ` · Lv.2 입고 ${Math.round(rate * 100)}%` : '';
   }
 
   // 합성 보너스 칸: 진행 점 5개(3번째 무료 상자, 5번째 확정 상자). 확정 상자가 있으면 눌러서 쓰라고 강조합니다.
@@ -738,7 +751,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
     if (this.blockedByDay()) return;
     this.cancelDrag();
     this.exitPickMode();
-    const events = openPartBox(this.state, this.hooks.orders, Date.now());
+    const events = openPartBox(this.state, this.hooks.orders, Date.now(), Math.random, this.hooks.supply?.() ?? {});
     if (!events) {
       if (supplyBlock(this.state) === 'energy') {
         this.hooks.onSfx?.('tap');
@@ -1059,7 +1072,9 @@ class MergeWorkbenchScene extends Phaser.Scene {
     this.returnConfirmUntil = 0;
     this.hooks.onChange();
     events.forEach((event) => {
-      if (event.type === 'delivered') this.hooks.onDelivered({ orderIndex: event.orderIndex, reward: event.reward });
+      if (event.type !== 'delivered') return;
+      const tip = this.hooks.onDelivered({ orderIndex: event.orderIndex, reward: event.reward })?.tip ?? 0;
+      if (tip > 0) this.tipByOrder.set(event.order, tip);
     });
     this.arriving = new Set(events.flatMap((event) => (event.type === 'placed' && this.state.board[event.index] ? [event.index] : [])));
     this.renderBoard();
@@ -1073,10 +1088,12 @@ class MergeWorkbenchScene extends Phaser.Scene {
     const delivered = events.filter((event): event is Extract<WorkbenchEvent, { type: 'delivered' }> => event.type === 'delivered');
     if (delivered.length > 0) {
       const total = delivered.reduce((sum, event) => sum + event.reward, 0);
+      const tips = delivered.reduce((sum, event) => sum + (this.tipByOrder.get(event.order) ?? 0), 0);
       const names = delivered.map((event) => orderMetaAt(event.orderIndex)?.name ?? '주문').join(' · ');
+      const pay = `급여 +${total.toLocaleString()} C${tips > 0 ? ` · 팁 +${tips.toLocaleString()}` : ''}`;
       return this.hooks.canPlay()
-        ? `${names} 납품 완료! 급여 +${total.toLocaleString()} C · 다음 주문이 이어져요.`
-        : `${names} 납품 완료! 오늘 주문을 모두 마쳤어요. 정산으로 이동합니다.`;
+        ? `${names} 납품 완료! ${pay} · 다음 주문이 이어져요.`
+        : `${names} 납품 완료! ${pay} · 오늘 주문을 모두 마쳤어요. 정산으로 이동합니다.`;
     }
     const bonus = events.find((event) => event.type === 'bonus');
     if (bonus) return bonus.bonus === 'free-box'
@@ -1173,7 +1190,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
         }
       } else {
         this.hooks.onSfx?.('complete');
-        await this.deliveredStamp(orderMetaAt(event.orderIndex)?.name ?? '주문', event.reward, () => {
+        await this.deliveredStamp(orderMetaAt(event.orderIndex)?.name ?? '주문', event.reward, this.tipByOrder.get(event.order) ?? 0, () => {
           this.shownOrder = event.order + 1;
           this.shownInstalled = noneInstalled();
           this.renderOrder();
@@ -1184,12 +1201,15 @@ class MergeWorkbenchScene extends Phaser.Scene {
     }
   }
 
-  private async deliveredStamp(name: string, reward: number, onPeak: () => void) {
+  private async deliveredStamp(name: string, reward: number, tip: number, onPeak: () => void) {
+    // 손님 팁이 붙으면(#109) 도장을 넓혀 급여와 팁을 한 줄에 보여 줍니다
+    const pay = `+${reward.toLocaleString()} C${tip > 0 ? ` · 팁 +${tip.toLocaleString()}` : ''}`;
+    const width = tip > 0 ? 320 : 232;
     const stamp = this.track(this.add.container(195, 138, [
-      this.add.rectangle(0, 0, 232, 66, CREAM).setStrokeStyle(4, RED),
+      this.add.rectangle(0, 0, width, 66, CREAM).setStrokeStyle(4, RED),
       this.add.rectangle(0, -21, 112, 20, RED).setStrokeStyle(2, BORDER),
       this.add.text(0, -21, '납품 완료', textStyle(11, CREAM_TEXT)).setOrigin(0.5),
-      this.add.text(0, 10, `${name} · +${reward.toLocaleString()} C`, textStyle(13, INK)).setOrigin(0.5),
+      this.add.text(0, 10, `${name} · ${pay}`, textStyle(tip > 0 ? 12 : 13, INK)).setOrigin(0.5),
     ]).setDepth(35).setScale(0.6).setAlpha(0));
     await this.tween({ targets: stamp, scale: 1, alpha: 1, duration: 240, ease: 'Back.easeOut' });
     await this.wait(650);

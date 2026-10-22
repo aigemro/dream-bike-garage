@@ -18,7 +18,9 @@ export type DayState = {
   // 오늘 납품할 주문 수. Day를 시작할 때 고정해 진행 중 설정이 바뀌어도 오늘 목표는 그대로입니다.
   orderTarget: number;
   ordersCompleted: number;
+  // 오늘 수입(급여 + 팁). tips는 그중 Garage 효과로 받은 손님 팁(#109, 정산 표시용)입니다.
   earnings: number;
+  tips: number;
   elapsedActiveMs: number;
   startedAt: string | null;
   pauseReason: DayPauseReason | null;
@@ -28,6 +30,7 @@ export type DayHistoryEntry = {
   dayNumber: number;
   ordersCompleted: number;
   earnings: number;
+  tips: number;
   elapsedActiveMs: number;
   endedAt: string;
 };
@@ -51,6 +54,7 @@ export function createReadyDay(dayNumber = 1, orderTarget = DAY_ORDER_TARGET): D
     orderTarget: normalizeOrderTarget(orderTarget),
     ordersCompleted: 0,
     earnings: 0,
+    tips: 0,
     elapsedActiveMs: 0,
     startedAt: null,
     pauseReason: null,
@@ -88,14 +92,17 @@ export type DayDeliveryResult = { day: DayState; counted: boolean; targetReached
 
 /**
  * 작업대가 확정한 납품 1건을 오늘 통계에 반영합니다. 코인 지급은 호출 측이 따로 합니다.
+ * tip은 Garage 효과로 붙는 손님 팁이며 수입에 더해지고 따로도 셉니다.
  * 오늘 주문 수를 채우면 closing으로 넘겨 새 입력을 막고 정산을 기다립니다.
  */
-export function recordOrderDelivery(day: DayState, reward: number): DayDeliveryResult {
+export function recordOrderDelivery(day: DayState, reward: number, tip = 0): DayDeliveryResult {
   if (!RECORDING_STATUSES.includes(day.status)) return { day, counted: false, targetReached: false };
+  const safeTip = Math.max(0, Math.floor(finite(tip, 0)));
   const next: DayState = {
     ...day,
     ordersCompleted: day.ordersCompleted + 1,
-    earnings: day.earnings + Math.max(0, Math.floor(finite(reward, 0))),
+    earnings: day.earnings + Math.max(0, Math.floor(finite(reward, 0))) + safeTip,
+    tips: day.tips + safeTip,
   };
   const targetReached = next.ordersCompleted >= day.orderTarget;
   return { day: targetReached ? { ...next, status: 'closing', pauseReason: null } : next, counted: true, targetReached };
@@ -112,6 +119,7 @@ export function settleDay(day: DayState, history: readonly DayHistoryEntry[], en
     dayNumber: day.dayNumber,
     ordersCompleted: day.ordersCompleted,
     earnings: day.earnings,
+    tips: day.tips,
     elapsedActiveMs: day.elapsedActiveMs,
     endedAt,
   };
@@ -141,13 +149,17 @@ export function parseDaySession(value: unknown, fallbackDayNumber = 1): DaySessi
   const save = value as Partial<DaySessionSave>;
   const current = save.current as Partial<DayState> | undefined;
   if (!current || typeof current !== 'object') return fallback;
+  // 팁은 수입의 일부이므로 수입을 넘지 않게 보정합니다(팁 기록이 없던 저장은 0).
+  const tipsWithin = (tips: unknown, earnings: number) => Math.min(earnings, wholeAtLeast(tips, 0, 0));
+  const currentEarnings = wholeAtLeast(current.earnings, 0, 0);
   return {
     current: {
       dayNumber: wholeAtLeast(current.dayNumber, 1, fallbackDayNumber),
       status: STATUSES.includes(current.status as DayStatus) ? current.status as DayStatus : 'ready',
       orderTarget: normalizeOrderTarget(current.orderTarget),
       ordersCompleted: wholeAtLeast(current.ordersCompleted, 0, 0),
-      earnings: wholeAtLeast(current.earnings, 0, 0),
+      earnings: currentEarnings,
+      tips: tipsWithin(current.tips, currentEarnings),
       elapsedActiveMs: Math.max(0, finite(current.elapsedActiveMs, 0)),
       startedAt: typeof current.startedAt === 'string' ? current.startedAt : null,
       pauseReason: PAUSE_REASONS.includes(current.pauseReason as DayPauseReason) ? current.pauseReason as DayPauseReason : null,
@@ -155,13 +167,17 @@ export function parseDaySession(value: unknown, fallbackDayNumber = 1): DaySessi
     history: Array.isArray(save.history)
       ? save.history
         .filter((entry): entry is DayHistoryEntry => !!entry && typeof entry === 'object' && finite((entry as DayHistoryEntry).dayNumber, 0) >= 1)
-        .map((entry) => ({
-          dayNumber: Math.floor(entry.dayNumber),
-          ordersCompleted: wholeAtLeast(entry.ordersCompleted, 0, 0),
-          earnings: wholeAtLeast(entry.earnings, 0, 0),
-          elapsedActiveMs: Math.max(0, finite(entry.elapsedActiveMs, 0)),
-          endedAt: typeof entry.endedAt === 'string' ? entry.endedAt : new Date(0).toISOString(),
-        }))
+        .map((entry) => {
+          const earnings = wholeAtLeast(entry.earnings, 0, 0);
+          return {
+            dayNumber: Math.floor(entry.dayNumber),
+            ordersCompleted: wholeAtLeast(entry.ordersCompleted, 0, 0),
+            earnings,
+            tips: tipsWithin(entry.tips, earnings),
+            elapsedActiveMs: Math.max(0, finite(entry.elapsedActiveMs, 0)),
+            endedAt: typeof entry.endedAt === 'string' ? entry.endedAt : new Date(0).toISOString(),
+          };
+        })
         .slice(-MAX_DAY_HISTORY)
       : [],
   };

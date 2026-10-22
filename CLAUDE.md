@@ -39,6 +39,7 @@
 | 코드 구조 원칙 | [docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md) |
 | 머지 작업대(E안)·Day 세션 적용 | [docs/development/MERGE_WORKBENCH_DAY_SESSION.md](docs/development/MERGE_WORKBENCH_DAY_SESSION.md) |
 | 레벨 디자인(영업일 주문표·챕터·드림 해금·경제 곡선) | [docs/game-design/LEVEL_DESIGN.md](docs/game-design/LEVEL_DESIGN.md) · 데이터 `src/data/level-design.ts` |
+| 자전거 수집·강화 효과(스탯별 역할·세트 보너스·시그니처·마일스톤·외형 이펙트) | [docs/game-design/BIKE_COLLECTION_GROWTH.md](docs/game-design/BIKE_COLLECTION_GROWTH.md) · 데이터 `src/data/garage-perks.ts` |
 | 첫 시작 프롤로그(삼촌의 프로 대회 → 알바 시작) | [docs/game-design/PROLOGUE.md](docs/game-design/PROLOGUE.md) · 대사·선수 `src/game/release/prologue-story.ts` |
 | AI 도구 병행 운영(Claude/Codex) | [docs/development/AI_ASSISTANT_WORKFLOW.md](docs/development/AI_ASSISTANT_WORKFLOW.md) |
 | 앱인토스 출시 가이드 | [docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md](docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md) |

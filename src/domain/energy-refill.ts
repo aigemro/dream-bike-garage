@@ -117,3 +117,17 @@ export function applySettlementRefill(state: Pick<WorkbenchState, 'energy' | 'en
   state.energyAnchor = now;
   return added;
 }
+
+// ── Garage 효과: 정산 시 체력 회복 (#109) ──
+// MTB 컬렉션 세트 보너스처럼 하루 정산 때 체력을 일정량 회복합니다. 첫 대회 전 정산 지원(가득 채우기)과 같은 시점에 적용하며,
+// 최대치를 넘지 않습니다. 정산 지원이 이미 가득 채웠으면 더 회복할 것이 없어 0을 돌려줍니다.
+
+/** amount만큼 체력을 회복합니다(최대치까지). 실제 회복량을 돌려주며, 가득 차면 회복 기준 시각을 지금으로 옮깁니다. */
+export function applyBonusEnergy(state: Pick<WorkbenchState, 'energy' | 'energyAnchor'>, amount: number, now: number): number {
+  const wanted = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
+  const added = Math.min(wanted, Math.max(0, ENERGY_MAX - state.energy));
+  if (added <= 0) return 0;
+  state.energy += added;
+  if (state.energy >= ENERGY_MAX) state.energyAnchor = now;
+  return added;
+}

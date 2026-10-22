@@ -69,6 +69,8 @@ export type CollectionProgress = {
   newBikeIds: string[];
   selectedBikeId: string;
   showcaseSlots: Array<string | null>;
+  // 이미 받은 보유 대수 마일스톤(기준 대수 목록, #109). 보상은 작업대 무료 상자로 지급합니다.
+  claimedMilestones: number[];
 };
 
 export function createCollectionProgress(): CollectionProgress {
@@ -81,6 +83,7 @@ export function createCollectionProgress(): CollectionProgress {
     newBikeIds: [],
     selectedBikeId: first,
     showcaseSlots: [first, null, null],
+    claimedMilestones: [],
   };
 }
 
@@ -312,6 +315,10 @@ export function sanitizeCollectionProgress(data: Partial<CollectionProgress>): C
     return typeof slot === 'string' && crafted.includes(slot) ? slot : null;
   });
 
+  // 마일스톤 수령 기록: 양의 정수 기준 대수만, 중복 없이 오름차순 (기록이 없던 저장은 빈 배열)
+  const claimed = [...new Set((Array.isArray(data.claimedMilestones) ? data.claimedMilestones : [])
+    .filter((value): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0))].sort((a, b) => a - b);
+
   return {
     understandingByBikeId: understanding,
     registeredBikeIds: registered,
@@ -320,6 +327,7 @@ export function sanitizeCollectionProgress(data: Partial<CollectionProgress>): C
     newBikeIds: news,
     selectedBikeId: selected,
     showcaseSlots: slots,
+    claimedMilestones: claimed,
   };
 }
 

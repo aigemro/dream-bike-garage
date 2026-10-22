@@ -5,6 +5,7 @@ import {
   REWARDED_AD_POLICY,
   SETTLEMENT_REFILL_LAST_DAY,
   adOffer,
+  applyBonusEnergy,
   applySettlementRefill,
   hasSettlementRefill,
   formatDuration,
@@ -168,5 +169,19 @@ describe('첫 대회 전 정산 지원 (#77 (e)안)', () => {
     expect(state.energyAnchor).toBe(NOW);
     recoverEnergy(state, NOW + 2 * ENERGY_RECOVERY_MS);
     expect(state.energy).toBe(7);
+  });
+});
+
+describe('Garage 효과 정산 체력 회복 (#109)', () => {
+  it('최대치까지만 회복하고 실제 회복량을 돌려주며, 가득 차면 회복 기준 시각을 지금으로 옮긴다', () => {
+    const state = { energy: 10, energyAnchor: 0 };
+    expect(applyBonusEnergy(state, 4, 5_000)).toBe(4);
+    expect(state).toEqual({ energy: 14, energyAnchor: 0 });
+    expect(applyBonusEnergy(state, 100, 6_000)).toBe(16);
+    expect(state).toEqual({ energy: ENERGY_MAX, energyAnchor: 6_000 });
+    expect(applyBonusEnergy(state, 12, 7_000)).toBe(0);
+    expect(applyBonusEnergy({ energy: 3, energyAnchor: 0 }, 0, 1)).toBe(0);
+    expect(applyBonusEnergy({ energy: 3, energyAnchor: 0 }, Number.NaN, 1)).toBe(0);
+    expect(applyBonusEnergy({ energy: 3, energyAnchor: 0 }, -5, 1)).toBe(0);
   });
 });

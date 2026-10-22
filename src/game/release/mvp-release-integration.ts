@@ -4,7 +4,7 @@ import { startHomeDesignPrototype } from './home-design-prototype';
 import { startGuideOverlayPrototype } from './guide-overlay-design';
 import { startMergeWorkbenchScreen, type RewardedAdWatchResult, type WorkbenchRewardedAd } from './merge-workbench-screen';
 import { startRewardSettlementPrototype } from './reward-settlement-design';
-import { startBikeCollectionDesignPrototype, type BikeCollectionDesignMode } from './bike-collection-design-prototype';
+import { startBikeCollectionDesignPrototype, type BikeCollectionDesignMode, type CollectionPerksView } from './bike-collection-design-prototype';
 import { startProfileDesignPrototype, type ProfileSummary } from './profile-design-prototype';
 import { startSettingsDrawerPrototype } from './settings-design';
 import { ReleaseAudio, type ReleaseAudioRoom, type ReleaseSfxEvent } from './release-audio';
@@ -40,7 +40,22 @@ import { CATALOG_SIZE, catalogBikeById } from './bike-catalog';
 import { WORKBENCH_SCHEDULE } from './workbench-orders';
 import { RELEASE_STORAGE_KEY, alignWorkbenchToDay, createReleaseState, restoreReleaseState, type ReleaseState } from './release-state';
 import { orderIndexOf, recoverEnergy } from '../../domain/merge-workbench';
-import { adOffer, applySettlementRefill, grantAdRefill, hasSettlementRefill } from '../../domain/energy-refill';
+import { adOffer, applyBonusEnergy, applySettlementRefill, grantAdRefill, hasSettlementRefill } from '../../domain/energy-refill';
+import {
+  bikeEffects,
+  categorySetViews,
+  claimCollectionMilestones,
+  deliveryTip,
+  garageBonusLine,
+  garagePerks,
+  heroBikeId,
+  heroEffectLine,
+  nextCollectionMilestone,
+  perkValueLabel,
+  raceBonusLine,
+  statEffectViews,
+  type GaragePerks,
+} from './garage-perks';
 import { firstSequenceOfDay } from '../../domain/progression';
 import { createPlatform, type GamePlatform, type HapticKind, type RewardedAdPort, type Unsubscribe } from '../../platform';
 import { SaveStore } from '../../platform/save-store';
@@ -101,6 +116,10 @@ export class MvpReleaseIntegrationController {
   private dayDeliveries: DayDelivery[] = [];
   // 오늘 납품으로 도감 등록된 드림 등급 자전거 (하루 정산 화면 표시용 · 저장하지 않음)
   private dayDreamUnlocks: string[] = [];
+  // 이번 정산에서 Garage 효과(MTB 컬렉션)로 회복한 체력 (정산 화면 표시용 · 저장하지 않음)
+  private daySettlementEnergy = 0;
+  // 홈에 한 번 보여 줄 안내(밀린 수집 마일스톤 보상 등). 보여 주면 비웁니다.
+  private homeNotice?: string;
   // 오늘 정산 봉투를 이미 열었는지(#107): 대회 화면에서 정산으로 되돌아올 때 개봉 연출을 건너뛴다
   private settlementOpened = false;
   private settleTimer?: number;
@@ -121,6 +140,8 @@ export class MvpReleaseIntegrationController {
     this.state = this.loadState();
     this.collection = this.loadCollection();
     this.growth = this.loadGrowth();
+    // 마일스톤 기록이 없던 저장: 이미 보유한 대수만큼의 보상을 밀린 것으로 보고 한 번에 지급합니다 (#109).
+    this.claimMilestones(true);
     this.audio.setEnabled(this.state.bgm, this.state.sfx);
     // 앱 전환: 소리를 멈추고, 작업대에서는 Day를 일시정지·재개하며, 화면이 사라질 때 남은 저장을 내보냅니다.
     this.unsubscribers.push(this.platform.onAppVisibilityChange((visible) => {
@@ -194,6 +215,7 @@ export class MvpReleaseIntegrationController {
         coins: this.state.coins,
         completedOrders: this.state.completedOrders,
         progress: this.buildHomeProgress(),
+        notice: this.takeHomeNotice(),
         dayNumber,
         // 상태 문구는 수집·프로필 HUD와 같은 계산을 공유합니다.
         dayStatusLabel: this.homeDayStatusLabel(),
@@ -229,11 +251,15 @@ export class MvpReleaseIntegrationController {
         return;
       }
       const progress = this.buildHomeProgress();
+      const perks = this.perks();
       this.game = startRaceCinematicBroadcast(this.stageId, {
         initialCoins: this.state.coins,
         dayNumber,
         seed: dayNumber * 1009 + this.state.completedOrders,
         stats: bikeStats(this.growth, progress.heroBike.id),
+        // Garage 효과: 로드 컬렉션·드림 머신 시그니처의 출전 속도 가산 (#109)
+        speedBonus: perks.raceSpeedBonus,
+        speedBonusLabel: raceBonusLine(perks),
         playerBike: {
           name: progress.heroBike.name,
           category: bikeCategoryFromKorean(progress.heroBike.category),
@@ -285,7 +311,9 @@ export class MvpReleaseIntegrationController {
         }),
         canPlay: () => canAcceptPlayInput(this.state.day),
         onChange: () => this.saveState(),
-        onDelivered: (delivery) => this.deliverOrder(delivery.orderIndex, delivery.reward),
+        // Garage 효과: 대표 자전거 희귀도·그래블 컬렉션의 Lv.2 입고 확률 (#109)
+        supply: () => ({ level2Rate: this.perks().level2BoxRate }),
+        onDelivered: (delivery) => ({ tip: this.deliverOrder(delivery.orderIndex, delivery.reward) }),
         onHome: () => this.show('home'),
         onSfx: (event) => this.play(event),
         rewardedAd: this.workbenchRewardedAd(),
@@ -315,10 +343,12 @@ export class MvpReleaseIntegrationController {
           const result = applyCraftPart(this.collection, this.state.coins, bikeId, part);
           if (result.ok) {
             this.state.coins = result.coins;
+            // 완성으로 보유 대수가 늘면 마일스톤 보상(무료 상자)을 바로 지급합니다 (#109)
+            const milestoneFreeBoxes = result.completed ? this.claimMilestones(false) : 0;
             this.saveCollection();
             this.saveState();
             this.refreshShell();
-            return { ok: true, coins: result.coins, installedParts: [...result.installedParts], completed: result.completed };
+            return { ok: true, coins: result.coins, installedParts: [...result.installedParts], completed: result.completed, milestoneFreeBoxes };
           }
           return {
             ok: false,
@@ -332,6 +362,14 @@ export class MvpReleaseIntegrationController {
         showcaseSlots: [...this.collection.showcaseSlots],
         onShowcaseChange: (slots) => { this.collection.showcaseSlots = slots; this.saveCollection(); },
         onBikeSeen: (bikeId) => { markBikeSeen(this.collection, bikeId); this.saveCollection(); },
+        // Garage 효과(#109): 대표·전시·컬렉션 세트·마일스톤 현황과 스탯별 효과 문구. 화면은 다시 그릴 때마다 새로 읽습니다.
+        getPerks: () => this.collectionPerksView(),
+        statEffectsFor: (bikeId: string) => statEffectViews(bikeStats(this.growth, bikeId), {
+          isHero: heroBikeId(this.collection) === bikeId,
+          isShowcased: this.collection.showcaseSlots.includes(bikeId),
+          perks: this.perks(),
+        }),
+        getBikeStats: (bikeId: string) => bikeStats(this.growth, bikeId),
         // 자전거 강화(완성 자전거별): 코인 차감과 강화 반영을 한 번에 적용·저장하고 결과만 화면에 돌려준다
         dreamStats: bikeStats(this.growth, this.collection.selectedBikeId),
         onDreamUpgrade: (stat: DreamStatKey) => {
@@ -386,6 +424,8 @@ export class MvpReleaseIntegrationController {
         this.collection = createCollectionProgress();
         this.growth = createGrowthProgress();
         this.dayDeliveries = [];
+        this.daySettlementEnergy = 0;
+        this.homeNotice = undefined;
         SAVE_ENTRIES.forEach((entry) => this.save.remove(entry));
         window.setTimeout(() => this.show('title'), 0);
       },
@@ -529,12 +569,13 @@ export class MvpReleaseIntegrationController {
     this.settleTimer = undefined;
   }
 
-  // 작업대가 확정한 납품 1건: 급여·납품 수·이해도·오늘 통계를 한 번에 반영하고 저장합니다.
-  private deliverOrder(orderIndex: number, reward: number) {
+  // 작업대가 확정한 납품 1건: 급여(+Garage 효과 팁)·납품 수·이해도·오늘 통계를 한 번에 반영하고 저장합니다. 붙은 팁을 돌려줍니다.
+  private deliverOrder(orderIndex: number, reward: number): number {
     this.recordActiveTime();
-    const recorded = recordOrderDelivery(this.state.day, reward);
+    const tip = deliveryTip(reward, this.perks());
+    const recorded = recordOrderDelivery(this.state.day, reward, tip);
     this.state.day = recorded.day;
-    this.state.coins += reward;
+    this.state.coins += reward + tip;
     this.state.completedOrders += 1;
     // 작업대는 납품 확정과 함께 순번을 이미 다음 주문으로 옮겼으므로, 그 위치를 홈·정산 표시용 주문 위치로 씁니다.
     this.state.orderIndex = orderIndexOf(this.state.workbench.order, WORKBENCH_SCHEDULE);
@@ -543,12 +584,13 @@ export class MvpReleaseIntegrationController {
     this.dayDreamUnlocks.push(...applyDreamBikeUnlocks(this.collection, this.growth));
     this.saveCollection();
     this.saveState();
-    if (!recorded.targetReached) return;
+    if (!recorded.targetReached) return tip;
     window.clearTimeout(this.settleTimer);
     this.settleTimer = window.setTimeout(() => {
       this.settleTimer = undefined;
       if (this.screen === 'game') this.finishToday();
     }, DAY_SETTLE_DELAY_MS);
+    return tip;
   }
 
   // 마감된 Day를 정산(이력 1회 기록)하고 하루 정산 화면을 엽니다.
@@ -559,8 +601,14 @@ export class MvpReleaseIntegrationController {
     const settled = settleDay(this.state.day, this.state.dayHistory, new Date().toISOString());
     this.state.day = settled.day;
     this.state.dayHistory = settled.history;
-    // 첫 대회 전 정산 지원: 정산과 같은 저장에 체력을 함께 기록합니다(이미 정산된 Day를 다시 열면 채우지 않음).
-    if (settled.settled) applySettlementRefill(this.state.workbench, settled.day.dayNumber, Date.now());
+    // 첫 대회 전 정산 지원과 Garage 효과(MTB 컬렉션) 체력 회복: 정산과 같은 저장에 체력을 함께 기록합니다
+    // (이미 정산된 Day를 다시 열면 채우지 않음).
+    if (settled.settled) {
+      const now = Date.now();
+      recoverEnergy(this.state.workbench, now);
+      applySettlementRefill(this.state.workbench, settled.day.dayNumber, now);
+      this.daySettlementEnergy = applyBonusEnergy(this.state.workbench, this.perks().settlementEnergy, now);
+    }
     this.saveState();
     this.show('reward');
   }
@@ -608,7 +656,9 @@ export class MvpReleaseIntegrationController {
       copy: {
         tag: 'DAY CLOSED',
         headline: `영업 ${day.dayNumber}일차 마감!`,
-        subline: `오늘 주문 ${day.ordersCompleted}건을 모두 납품했습니다 · 영업 시간 ${formatDayClock(day.elapsedActiveMs)}`,
+        subline: day.tips > 0
+          ? `주문 ${day.ordersCompleted}건 납품 · 손님 팁 +${day.tips.toLocaleString()} · 영업 시간 ${formatDayClock(day.elapsedActiveMs)}`
+          : `오늘 주문 ${day.ordersCompleted}건을 모두 납품했습니다 · 영업 시간 ${formatDayClock(day.elapsedActiveMs)}`,
         speech: '오늘도 수고했어!\n내일도 잘 부탁해',
         panelTitle: '오늘 영업 정산',
         nextTag: 'NEXT DAY',
@@ -618,6 +668,7 @@ export class MvpReleaseIntegrationController {
         doneMessage: [
           dreamUnlockNames.length > 0 ? `드림 등급 ${dreamUnlockNames.join(' · ')} 도감 등록! Garage에서 제작할 수 있어요.` : '오늘 정산이 끝났습니다.',
           hasSettlementRefill(day.dayNumber) ? '첫 대회 전까지는 정산하면 알바 체력이 가득 차요!' : '',
+          this.daySettlementEnergy > 0 ? `MTB 컬렉션 보너스로 알바 체력 +${this.daySettlementEnergy} 회복!` : '',
           '다음 영업을 시작하거나 홈으로 돌아가세요.',
         ].filter(Boolean).join(' '),
       },
@@ -634,6 +685,7 @@ export class MvpReleaseIntegrationController {
     this.state.day = prepareNextDay(this.state.day);
     this.dayDeliveries = [];
     this.dayDreamUnlocks = [];
+    this.daySettlementEnergy = 0;
     this.settlementOpened = false;
     // 주문표는 영업일 기준이므로, 새 영업일의 첫 주문이 작업대 순번과 어긋나 있으면 맞춥니다(한 행동 2건 납품 등).
     if (alignWorkbenchToDay(this.state.workbench, this.state.day)) {
@@ -650,6 +702,8 @@ export class MvpReleaseIntegrationController {
     const selectedCrafted = this.collection.craftedBikeIds.includes(this.collection.selectedBikeId);
     const hero = (selectedCrafted ? catalogBikeById(this.collection.selectedBikeId) : undefined) ?? catalogBikeById('dream-road')!;
     const heroStats = bikeStats(this.growth, hero.id);
+    const perks = this.perks();
+    const milestone = nextCollectionMilestone(this.collection);
     return {
       ownedCount: craftedBikeCount(this.collection),
       catalogSize: CATALOG_SIZE,
@@ -679,7 +733,62 @@ export class MvpReleaseIntegrationController {
         color: hero.color,
         grade: dreamGradeName(heroStats),
         stage: dreamStage(heroStats),
+        effects: bikeEffects(heroStats),
       },
+      // Garage 효과 문구 (#109): 대표 자전거 효과와 공방 보너스, 다음 수집 보상
+      heroEffectLine: heroEffectLine(heroStats, perks),
+      garageBonusLine: garageBonusLine(perks),
+      nextMilestoneLabel: milestone ? `${milestone.owned}대 보유 시 무료 상자 ${milestone.freeBoxes}개` : '',
+    };
+  }
+
+  // ── Garage 효과 (#109): 수집·강화 결과를 작업대·납품·정산·대회·화면에 잇습니다 ──
+  private perks(): GaragePerks {
+    return garagePerks(this.collection, this.growth);
+  }
+
+  /**
+   * 보유 대수가 닿은 마일스톤을 받아 작업대 무료 상자로 지급하고 저장합니다. 지급한 무료 상자 수를 돌려줍니다.
+   * onLoad가 참이면(저장 복구 직후) 밀린 보상을 홈 안내로 한 번 알립니다.
+   */
+  private claimMilestones(onLoad: boolean): number {
+    const reached = claimCollectionMilestones(this.collection);
+    if (reached.length === 0) return 0;
+    const freeBoxes = reached.reduce((sum, milestone) => sum + milestone.freeBoxes, 0);
+    this.state.workbench.freeBoxes += freeBoxes;
+    this.saveCollection();
+    this.saveState();
+    const top = reached[reached.length - 1];
+    if (onLoad) this.homeNotice = `수집 ${top.owned}대 달성 보상 · 무료 상자 +${freeBoxes}를 작업대에 넣어 뒀어요.`;
+    return freeBoxes;
+  }
+
+  private takeHomeNotice(): string | undefined {
+    const notice = this.homeNotice;
+    this.homeNotice = undefined;
+    return notice;
+  }
+
+  // 수집 화면이 보여 줄 Garage 효과 현황: 대표 자전거, 효과 합계, 카테고리 세트 진행, 다음 마일스톤
+  private collectionPerksView(): CollectionPerksView {
+    const perks = this.perks();
+    const milestone = nextCollectionMilestone(this.collection);
+    return {
+      heroBikeId: heroBikeId(this.collection),
+      tipRate: perks.tipRate,
+      level2BoxRate: perks.level2BoxRate,
+      raceSpeedBonus: perks.raceSpeedBonus,
+      settlementEnergy: perks.settlementEnergy,
+      categorySets: categorySetViews(this.collection).map(({ rule, state, total }) => ({
+        category: rule.category,
+        owned: state.owned,
+        total,
+        tier: state.tier,
+        label: rule.label,
+        valueLabel: state.value > 0 ? perkValueLabel(rule.kind, state.value) : '',
+        nextLabel: state.next ? `${state.next.owned}대 ${perkValueLabel(rule.kind, state.next.value)}` : '',
+      })),
+      nextMilestoneLabel: milestone ? `${milestone.owned}대 보유 시 무료 상자 ${milestone.freeBoxes}개` : '모든 수집 보상 달성',
     };
   }
 

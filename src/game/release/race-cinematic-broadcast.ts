@@ -69,6 +69,9 @@ import {
 export type RaceCinematicHooks = {
   initialCoins?: number;
   stats?: BikeStats;
+  // Garage 효과(#109): 로드 컬렉션·드림 머신 시그니처의 출전 속도 가산과 진입 화면 문구
+  speedBonus?: number;
+  speedBonusLabel?: string;
   dayNumber?: number;
   seed?: number;
   playerBike?: { name: string; category: BikeCategory; frameColor: number };
@@ -1042,6 +1045,8 @@ export class RaceCinematicScene extends RaceBroadcastScene {
     preview.update(previewMotion);
     preview.setPosition(WIDTH / 2 - 8, 282);
     this.text(WIDTH / 2, 338, `나 · ${bike.name} · 정비사`, 11, INK_TEXT).setOrigin(0.5).setBackgroundColor('#fff1c6').setPadding(6, 3, 6, 3);
+    // 출전 보너스(#109): 컬렉션·시그니처로 더해진 속도를 자전거 이름 아래 한 줄로
+    if (this.hooks.speedBonusLabel) this.text(WIDTH / 2, 364, this.hooks.speedBonusLabel, 11, '#f6d995').setOrigin(0.5);
 
     this.text(WIDTH / 2, 392, '3,000m 리버사이드 3K 챌린지', 20).setOrigin(0.5);
     this.text(WIDTH / 2, 426, `참가비 ${META.entryFee} 코인 · 8명 출전`, 11).setOrigin(0.5);
@@ -1090,6 +1095,7 @@ export class RaceCinematicScene extends RaceBroadcastScene {
       this.startBroadcast(simulateRace({
         seed: this.hooks.seed ?? 20260903,
         playerStats: this.playerStats(),
+        playerSpeedBonus: this.hooks.speedBonus,
         playerCategory: bike.category,
         playerFrameColor: bike.frameColor,
         meta: META,
