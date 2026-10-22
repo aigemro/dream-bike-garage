@@ -49,6 +49,7 @@
 | UI 스타일 가이드(화면 공통 규칙) | [docs/design/UI_STYLE_GUIDE.md](docs/design/UI_STYLE_GUIDE.md) |
 | 에셋(디자인·사운드) 운영 | [docs/development/ASSET_WORKFLOW.md](docs/development/ASSET_WORKFLOW.md) |
 | 레이스 라이더 모션(바퀴·페달링·자세) | [docs/development/RACE_RIDER_MOTION.md](docs/development/RACE_RIDER_MOTION.md) |
+| 레이스 중계 이펙트(출발 신호등·먼지·오라·잔상·표지판·집중선·컨페티) | [docs/development/RACE_BROADCAST_FX.md](docs/development/RACE_BROADCAST_FX.md) · 규칙 `src/game/release/race-fx.ts` |
 | 웹 우선 결정 배경 | [docs/decisions/0001-web-first.md](docs/decisions/0001-web-first.md) |
 
 `docs/planning/game-marketing-plan.md`(Peloton Merge 기획)는 **Deprecated**이므로 참조 기준으로 삼지 않습니다.

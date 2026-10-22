@@ -17,7 +17,7 @@ import {
   type RiderPosture,
 } from './race-rider-motion';
 import { RacerView, type RacerSpec } from './race-rider-view';
-import { BROADCAST_LAYOUT, RaceBroadcastScene, widenHitArea, type BroadcastRacer } from './race-cinematic-broadcast';
+import { BROADCAST_LAYOUT, RaceBroadcastScene, widenHitArea, type BroadcastCue, type BroadcastRacer } from './race-cinematic-broadcast';
 import {
   PROLOGUE_COMMENTARY,
   PROLOGUE_GOAL,
@@ -206,7 +206,7 @@ export class PrologueScene extends RaceBroadcastScene {
     return PROLOGUE_COMMENTARY.photoFinish;
   }
 
-  protected onClimaxEvent(event: 'final' | 'overtake' | 'photo-finish'): void {
+  protected onClimaxEvent(event: BroadcastCue): void {
     if (event === 'overtake') this.hooks.onSfx?.('start');
     if (event === 'photo-finish') this.hooks.onSfx?.('complete');
   }
