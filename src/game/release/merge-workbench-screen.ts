@@ -552,7 +552,7 @@ class MergeWorkbenchScene extends Phaser.Scene {
         ? '작업대가 가득 찼어요 · 반품으로 자리 확보'
         : block === 'energy'
           ? '체력 소진 · 눌러서 회복 안내 보기'
-          : free ? '무료 상자 · 체력 소모 없음' : `점선 칸에 자동 배치${this.supplyLabel()}`)
+          : free ? `무료 상자 · 체력 소모 없음${this.supplyLabel()}` : `점선 칸에 자동 배치${this.supplyLabel()}`)
       .setColor(block ? ALERT : free ? SUCCESS : MUTED);
     this.boxCost.setText(free ? `무료 ×${this.state.freeBoxes}` : '⚡ −1').setColor(free ? SUCCESS : ALERT);
 
