@@ -48,7 +48,7 @@ import { bindSafeAreaCss } from '../../platform/safe-area-css';
 import { showExitConfirm } from '../../ui/exit-confirm';
 import { startRaceCinematicBroadcast } from './race-cinematic-broadcast';
 import { startPrologue } from './prologue-design';
-import { RIVERSIDE_ENDURANCE_RACE, daysUntilRace, isRaceDay } from './race-progress';
+import { RIVERSIDE_ENDURANCE_RACE, canEnterRace, daysUntilRace, isRaceDay, raceEntryStatus } from './race-progress';
 import { bikeCategoryFromKorean } from './bike-pixel-sprite';
 import {
   canAcceptPlayInput,
@@ -101,6 +101,8 @@ export class MvpReleaseIntegrationController {
   private dayDeliveries: DayDelivery[] = [];
   // 오늘 납품으로 도감 등록된 드림 등급 자전거 (하루 정산 화면 표시용 · 저장하지 않음)
   private dayDreamUnlocks: string[] = [];
+  // 오늘 정산 봉투를 이미 열었는지(#107): 대회 화면에서 정산으로 되돌아올 때 개봉 연출을 건너뛴다
+  private settlementOpened = false;
   private settleTimer?: number;
   private activeTimer?: number;
   private activeSince = 0;
@@ -186,6 +188,8 @@ export class MvpReleaseIntegrationController {
       const dayNumber = this.state.day.dayNumber;
       const raceDay = isRaceDay(dayNumber, RIVERSIDE_ENDURANCE_RACE);
       const raceCompleted = this.state.lastRaceDay === dayNumber;
+      // 참가비 충족 여부(#107): 이미 낸 날은 코인과 무관하게 참가 가능
+      const raceAffordable = canEnterRace(this.raceEntryStatusToday());
       this.game = startHomeDesignPrototype(this.stageId, 'warm-pixel-garage', {
         coins: this.state.coins,
         completedOrders: this.state.completedOrders,
@@ -198,6 +202,8 @@ export class MvpReleaseIntegrationController {
           heldEveryDays: RIVERSIDE_ENDURANCE_RACE.heldEveryDays,
           daysUntil: daysUntilRace(dayNumber, RIVERSIDE_ENDURANCE_RACE),
           entryFee: RIVERSIDE_ENDURANCE_RACE.entryFee,
+          coins: this.state.coins,
+          affordable: raceAffordable,
           available: raceDay && !raceCompleted,
           completed: raceCompleted,
         },
@@ -217,8 +223,9 @@ export class MvpReleaseIntegrationController {
     }
     if (screen === 'race') {
       const dayNumber = this.state.day.dayNumber;
-      if (!isRaceDay(dayNumber, RIVERSIDE_ENDURANCE_RACE) || this.state.lastRaceDay === dayNumber) {
-        this.show('home');
+      // 대회일이 아니거나 이미 완주했거나 참가비가 부족하면(#107) 대회 화면을 열지 않는다
+      if (!canEnterRace(this.raceEntryStatusToday())) {
+        this.show(this.state.day.status === 'settlement' ? 'reward' : 'home');
         return;
       }
       const progress = this.buildHomeProgress();
@@ -238,12 +245,15 @@ export class MvpReleaseIntegrationController {
           this.state.raceEntryDay = dayNumber;
           this.saveState();
         },
-        onExit: () => this.show('home'),
+        // 정산 화면의 질문에서 들어왔으면(#107) 정산 화면으로 돌아가 다시 고를 수 있게 한다(낸 참가비는 유지)
+        onExit: () => this.show(this.state.day.status === 'settlement' ? 'reward' : 'home'),
         onSettled: ({ coins }) => {
           this.state.coins = coins;
           this.state.lastRaceDay = dayNumber;
           this.state.raceEntryDay = null;
           this.saveState();
+          // 정산 화면의 질문에서 참가한 대회면(#107) 다음 영업일을 준비한 뒤 홈으로 돌아간다
+          if (this.state.day.status === 'settlement') this.beginNextDay();
           this.show('home');
         },
       });
@@ -399,6 +409,16 @@ export class MvpReleaseIntegrationController {
   }
 
   // ── Day 세션: 주문 N건 = 하루 일정 (#77 C안) ──
+  // 오늘 대회 참가 가능 상태(#107): 홈 버튼·대회 화면 진입·정산 질문이 같은 판정을 공유합니다.
+  private raceEntryStatusToday() {
+    return raceEntryStatus({
+      day: this.state.day.dayNumber,
+      coins: this.state.coins,
+      lastRaceDay: this.state.lastRaceDay,
+      raceEntryDay: this.state.raceEntryDay,
+    }, RIVERSIDE_ENDURANCE_RACE);
+  }
+
   private dayStatusLabel() {
     const status = this.state.day.status;
     if (status === 'ready') return '영업 준비';
@@ -558,6 +578,17 @@ export class MvpReleaseIntegrationController {
     // 다음 영업일의 첫 주문은 주문표 기준(영업일 → 순번)으로 구합니다.
     const nextOrder = orderMetaAt(orderIndexOf(firstSequenceOfDay(nextDay), WORKBENCH_SCHEDULE));
     const dreamUnlockNames = this.dayDreamUnlocks.map((id) => catalogBikeById(id)?.name ?? id);
+    // 대회일(#107): 아직 완주하지 않았으면 다음 영업으로 넘어가기 전에 참가 여부를 묻는다. 참가비가 부족하면 참가 버튼을 잠근다.
+    const entryStatus = this.raceEntryStatusToday();
+    const racePrompt = entryStatus === 'not-race-day' || entryStatus === 'completed'
+      ? undefined
+      : {
+          raceName: RIVERSIDE_ENDURANCE_RACE.name,
+          entryFee: RIVERSIDE_ENDURANCE_RACE.entryFee,
+          coins: this.state.coins,
+          affordable: canEnterRace(entryStatus),
+          onEnter: () => this.show('race'),
+        };
     this.game = startRewardSettlementPrototype(this.stageId, {
       // 급여는 납품마다 이미 받았으므로, 봉투는 오늘 수입만큼 올라가는 연출만 합니다.
       // 정산 전에 코인을 썼을 수 있으므로(강화·대회 참가비) 시작값이 음수가 되지 않게 방어합니다.
@@ -590,7 +621,9 @@ export class MvpReleaseIntegrationController {
           '다음 영업을 시작하거나 홈으로 돌아가세요.',
         ].filter(Boolean).join(' '),
       },
-      onReward: () => this.refreshShell(),
+      onReward: () => { this.settlementOpened = true; this.refreshShell(); },
+      alreadyOpened: this.settlementOpened,
+      racePrompt,
       onNext: () => { this.beginNextDay(); this.show('game'); },
       onHome: () => { this.beginNextDay(); this.show('home'); },
       onSfx: (event) => this.play(event),
@@ -601,6 +634,7 @@ export class MvpReleaseIntegrationController {
     this.state.day = prepareNextDay(this.state.day);
     this.dayDeliveries = [];
     this.dayDreamUnlocks = [];
+    this.settlementOpened = false;
     // 주문표는 영업일 기준이므로, 새 영업일의 첫 주문이 작업대 순번과 어긋나 있으면 맞춥니다(한 행동 2건 납품 등).
     if (alignWorkbenchToDay(this.state.workbench, this.state.day)) {
       this.state.orderIndex = orderIndexOf(this.state.workbench.order, WORKBENCH_SCHEDULE);
