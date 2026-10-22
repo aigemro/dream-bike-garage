@@ -7,11 +7,13 @@ import {
   RIVERSIDE_RACE,
   applyRaceEntry,
   applyRaceReward,
+  canEnterRace,
   daysUntilRace,
   formatRaceTime,
   isRaceDay,
   nextRaceDay,
   progressAt,
+  raceEntryStatus,
   raceRewardForRank,
   segmentAt,
   simulateRace,
@@ -49,6 +51,41 @@ describe('참가비', () => {
     const result = applyRaceEntry(2480);
     expect(result.ok).toBe(true);
     expect(result.coins).toBe(2480 - RIVERSIDE_RACE.entryFee);
+  });
+});
+
+describe('대회 참가 가능 판정(#107)', () => {
+  const fee = RIVERSIDE_RACE.entryFee;
+  const base = { coins: fee, lastRaceDay: null, raceEntryDay: null };
+
+  it('대회일이 아니면 참가할 수 없다', () => {
+    expect(raceEntryStatus({ ...base, day: 4 })).toBe('not-race-day');
+    expect(canEnterRace('not-race-day')).toBe(false);
+  });
+
+  it('오늘 이미 완주했으면 참가할 수 없다', () => {
+    expect(raceEntryStatus({ ...base, day: 5, lastRaceDay: 5 })).toBe('completed');
+    expect(canEnterRace('completed')).toBe(false);
+  });
+
+  it('참가비만큼 코인이 있어야 참가할 수 있다', () => {
+    expect(raceEntryStatus({ ...base, day: 5, coins: fee })).toBe('ready');
+    expect(raceEntryStatus({ ...base, day: 10, coins: fee - 1 })).toBe('coins');
+    expect(canEnterRace('ready')).toBe(true);
+    expect(canEnterRace('coins')).toBe(false);
+  });
+
+  it('참가비를 이미 낸 날은 코인이 부족해도 참가할 수 있다', () => {
+    expect(raceEntryStatus({ ...base, day: 5, coins: 0, raceEntryDay: 5 })).toBe('paid');
+    expect(canEnterRace('paid')).toBe(true);
+  });
+
+  it('지난 대회의 기록은 오늘 판정에 영향을 주지 않는다', () => {
+    expect(raceEntryStatus({ ...base, day: 10, lastRaceDay: 5, raceEntryDay: 5, coins: fee - 1 })).toBe('coins');
+  });
+
+  it('3K 챌린지도 같은 참가비·주기를 쓴다', () => {
+    expect(raceEntryStatus({ ...base, day: 5 }, RIVERSIDE_ENDURANCE_RACE)).toBe('ready');
   });
 });
 
