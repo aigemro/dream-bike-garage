@@ -2,6 +2,7 @@
 // 영업 1일차부터 설계 끝(과 반복 구간 일부)까지 주문표대로 납품하고, 홈 NEXT GOAL 순서(제작 → 강화)로 급여를 쓰며,
 // 대회일에는 참가해 상금을 받는 플레이어를 순수 로직으로 돌려 "게임이 끝까지 흘러가는지"를 확인합니다.
 // 작업대 플레이(상자·합성)는 생략하고 주문 단위로 진행하며, 체력은 작업량 × 0.93 추정치로만 봅니다.
+// Garage 효과(#109): 납품마다 손님 팁(전시 스타일·미니벨로 세트·시그니처)을 더하고, 전시대에는 보유 자전거 중 스타일이 높은 3대를 올립니다.
 import { describe, expect, it } from 'vitest';
 import { CATALOG_BIKES } from '../src/game/release/bike-catalog';
 import { CHAPTERS, DAY_PLANS, DREAM_BIKE_UNLOCKS } from '../src/data/level-design';
@@ -27,6 +28,7 @@ import { orderIndexOf } from '../src/domain/merge-workbench';
 import { ORDERS_PER_DAY, chapterForDay, scheduledOrderAt, summarizeDay } from '../src/domain/progression';
 import { RIVERSIDE_ENDURANCE_RACE, applyRaceEntry, applyRaceReward, isRaceDay, simulateRace } from '../src/game/release/race-progress';
 import { bikeCategoryFromKorean } from '../src/game/release/bike-pixel-sprite';
+import { deliveryTip, garagePerks } from '../src/game/release/garage-perks';
 
 const NORMAL_BIKE_IDS = CATALOG_BIKES.filter((bike) => bike.grade !== '드림' && !INITIAL_OWNED_BIKE_IDS.includes(bike.id)).map((bike) => bike.id);
 const DREAM_BIKE_IDS = DREAM_BIKE_UNLOCKS.map((rule) => rule.bikeId);
@@ -40,6 +42,7 @@ type DayRow = {
   workUnits: number;
   energy: number;
   income: number;
+  tips: number;
   coinsEnd: number;
   registered: number;
   crafted: number;
@@ -52,6 +55,13 @@ type DayRow = {
 /** 대표 자전거: 보유 자전거 중 스탯 합이 가장 큰 자전거(동률이면 시작 자전거 우선) */
 function heroBike(collection: CollectionProgress, growth: GrowthProgress) {
   return [...collection.craftedBikeIds].sort((a, b) => dreamTotalLevel(bikeStats(growth, b)) - dreamTotalLevel(bikeStats(growth, a)))[0];
+}
+
+/** 전시대 3칸에 보유 자전거 중 스타일 Lv이 높은 순으로 올리고, 대표 자전거를 선택 상태로 둡니다(홈 안내를 따르는 플레이어가 전시도 챙긴다고 가정). */
+function autoShowcase(collection: CollectionProgress, growth: GrowthProgress) {
+  const ordered = [...collection.craftedBikeIds].sort((a, b) => bikeStats(growth, b).스타일 - bikeStats(growth, a).스타일);
+  collection.showcaseSlots = [0, 1, 2].map((index) => ordered[index] ?? null);
+  collection.selectedBikeId = heroBike(collection, growth);
 }
 
 /** 홈 NEXT GOAL 순서대로 코인을 씁니다. 다음 영업일이 대회일이면 참가비는 남겨 둡니다. */
@@ -87,12 +97,14 @@ function runSimulation() {
   let growth = createGrowthProgress();
   let coins = 0;
   let completedOrders = 0;
+  let tipsTotal = 0;
   const rows: DayRow[] = [];
   const milestones: Record<string, number | null> = { allRegistered: null, allCrafted: null, firstDream: null, allDream: null, repeatGoal: null };
 
   for (let day = 1; day <= SIM_DAYS; day += 1) {
     const summary = summarizeDay(ORDER_SCHEDULE, day);
     let income = 0;
+    let tips = 0;
     const unlockedToday: string[] = [];
     // 대회일 아침: 대표 자전거로 참가 (컨트롤러와 같은 시드 규칙)
     let race: DayRow['race'];
@@ -117,18 +129,23 @@ function runSimulation() {
       const sequence = (day - 1) * ORDERS_PER_DAY + slot;
       const order = scheduledOrderAt(ORDER_SCHEDULE, sequence)!;
       const orderIndex = orderIndexOf(sequence, WORKBENCH_SCHEDULE);
+      // 납품 전 Garage 효과(전시·세트·시그니처)로 팁을 정하고 급여와 함께 받는다 (#109)
+      const tip = deliveryTip(order.reward, garagePerks(collection, growth));
       const delivery = applyOrderDelivery(collection, orderIndex);
       expect(delivery.bike?.id).toBe(order.bikeId);
       unlockedToday.push(...applyDreamBikeUnlocks(collection, growth));
-      coins += order.reward;
-      income += order.reward;
+      coins += order.reward + tip;
+      income += order.reward + tip;
+      tips += tip;
       completedOrders += 1;
     }
+    tipsTotal += tips;
     const reserve = isRaceDay(day + 1, RIVERSIDE_ENDURANCE_RACE) ? RIVERSIDE_ENDURANCE_RACE.entryFee : 0;
     const spent = spend(collection, growth, coins, reserve);
     coins = spent.coins;
     growth = spent.growth;
     unlockedToday.push(...spent.unlocked);
+    autoShowcase(collection, growth);
     expect(coins).toBeGreaterThanOrEqual(0);
 
     const registered = NORMAL_BIKE_IDS.filter((id) => isBikeRegistered(collection, id)).length;
@@ -147,6 +164,7 @@ function runSimulation() {
       workUnits: summary.workUnits,
       energy: summary.energyEstimate,
       income,
+      tips,
       coinsEnd: coins,
       registered,
       crafted,
@@ -156,7 +174,7 @@ function runSimulation() {
       unlocked: unlockedToday,
     });
   }
-  return { rows, milestones, collection, growth, coins };
+  return { rows, milestones, collection, growth, coins, tipsTotal };
 }
 
 describe('레벨 디자인 전체 흐름: 1일차부터 설계 끝과 반복 구간까지', () => {
@@ -196,10 +214,17 @@ describe('레벨 디자인 전체 흐름: 1일차부터 설계 끝과 반복 구
     expect(result.rows[DESIGNED_DAYS - 1].heroTotal).toBeGreaterThanOrEqual(10);
   });
 
+  it('손님 팁(#109)은 설계 영업일 총수입의 15%를 넘지 않는 보조 수입이다', () => {
+    const designedIncome = result.rows.filter((row) => row.day <= DESIGNED_DAYS).reduce((sum, row) => sum + row.income, 0);
+    const designedTips = result.rows.filter((row) => row.day <= DESIGNED_DAYS).reduce((sum, row) => sum + row.tips, 0);
+    expect(designedTips).toBeGreaterThan(0);
+    expect(designedTips / designedIncome).toBeLessThanOrEqual(0.15);
+  });
+
   it('영업일별 흐름표 (문서 참고용)', () => {
     const lines = result.rows.map((row) =>
-      `${String(row.day).padStart(2)}일차 ${row.chapter.padEnd(6)} 작업량 ${String(row.workUnits).padStart(2)} 체력≈${String(row.energy).padStart(2)} 수입 ${String(row.income).padStart(5)} 잔고 ${String(row.coinsEnd).padStart(6)} 등록 ${String(row.registered).padStart(2)}/20 완성 ${String(row.crafted).padStart(2)}/20 보유 ${String(row.ownedTotal).padStart(2)}/24 대표합 ${String(row.heroTotal).padStart(2)}${row.race ? ` 대회 ${row.race.rank}위(${row.race.net >= 0 ? '+' : ''}${row.race.net})` : ''}${row.unlocked.length ? ` 해금 ${row.unlocked.join(',')}` : ''}`);
-    console.log(['', ...lines, `마일스톤: ${JSON.stringify(result.milestones)}`, `시뮬레이션 끝(${SIM_DAYS}일차) 코인 ${result.coins}`].join('\n'));
+      `${String(row.day).padStart(2)}일차 ${row.chapter.padEnd(6)} 작업량 ${String(row.workUnits).padStart(2)} 체력≈${String(row.energy).padStart(2)} 수입 ${String(row.income).padStart(5)} 팁 ${String(row.tips).padStart(3)} 잔고 ${String(row.coinsEnd).padStart(6)} 등록 ${String(row.registered).padStart(2)}/20 완성 ${String(row.crafted).padStart(2)}/20 보유 ${String(row.ownedTotal).padStart(2)}/24 대표합 ${String(row.heroTotal).padStart(2)}${row.race ? ` 대회 ${row.race.rank}위(${row.race.net >= 0 ? '+' : ''}${row.race.net})` : ''}${row.unlocked.length ? ` 해금 ${row.unlocked.join(',')}` : ''}`);
+    console.log(['', ...lines, `마일스톤: ${JSON.stringify(result.milestones)}`, `시뮬레이션 끝(${SIM_DAYS}일차) 코인 ${result.coins} · 팁 합계 ${result.tipsTotal}`].join('\n'));
     expect(lines).toHaveLength(SIM_DAYS);
   });
 });

@@ -20,7 +20,15 @@ export function daysUntilRace(day: number, meta = RIVERSIDE_RACE) { return nextR
 export function applyRaceEntry(coins: number, meta = RIVERSIDE_RACE) { return coins < meta.entryFee ? { ok: false as const, reason: 'coins' as const, coins, entryFee: meta.entryFee } : { ok: true as const, coins: coins - meta.entryFee, entryFee: meta.entryFee }; }
 /** 시드 고정 난수(mulberry32). 같은 시드는 같은 레이스를 만듭니다. */
 export function randomFor(seed: number) { let state = seed >>> 0; return () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-function speed(stats: BikeStats) { return 17 + stats.성능 * 2.5 + dreamStage(stats) * 1.5; }
+/** 상대 선수 속도 대역(20.5~29.5). 화면·시뮬레이션이 같은 값을 보도록 내보냅니다. */
+export const NPC_SPEED_MIN = 20.5;
+export const NPC_SPEED_SPAN = 9;
+/** 성능 Lv 1당 더해지는 속도와 성장 단계 1당 더해지는 속도(Garage 효과 설명에 씁니다) */
+export const SPEED_PER_PERFORMANCE_LEVEL = 2.5;
+export const SPEED_PER_STAGE = 1.5;
+function speed(stats: BikeStats) { return 17 + stats.성능 * SPEED_PER_PERFORMANCE_LEVEL + dreamStage(stats) * SPEED_PER_STAGE; }
+/** 플레이어 출전 속도: 대표 자전거 스탯 기반 속도 + Garage 효과 가산(로드 컬렉션·시그니처, #109) */
+export function playerSpeedScore(stats: BikeStats, bonus = 0) { return speed(stats) + (Number.isFinite(bonus) ? Math.max(0, bonus) : 0); }
 type Npc = { name: string; category: BikeCategory; frameColor: number };
 const NPCS: Npc[] = [
   { name: '강변의 지호', category: 'road', frameColor: 0x4e8092 }, { name: '언덕왕 미소', category: 'mtb', frameColor: 0x5e9a67 },
@@ -29,9 +37,9 @@ const NPCS: Npc[] = [
 ];
 export type RacerResult = { id: string; name: string; isPlayer: boolean; category: BikeCategory; frameColor: number; speedScore: number; rank: number; finishTimeMs: number; timeline: number[] };
 export type RaceResult = { meta: RaceMeta; seed: number; tickMs: number; totalTicks: number; racers: RacerResult[]; playerRank: number; playerTimeMs: number };
-export function simulateRace(input: { seed: number; playerName?: string; playerStats: BikeStats; playerCategory?: BikeCategory; playerFrameColor?: number; meta?: RaceMeta }): RaceResult {
+export function simulateRace(input: { seed: number; playerName?: string; playerStats: BikeStats; playerSpeedBonus?: number; playerCategory?: BikeCategory; playerFrameColor?: number; meta?: RaceMeta }): RaceResult {
   const meta = input.meta ?? RIVERSIDE_RACE; const rnd = randomFor(input.seed); const tickMs = 600;
-  const runners = [{ id: 'player', name: input.playerName ?? '나', isPlayer: true, category: input.playerCategory ?? 'road' as BikeCategory, frameColor: input.playerFrameColor ?? 0xc95746, speedScore: speed(input.playerStats), distance: 0, finish: null as number | null, timeline: [0] }, ...NPCS.slice(0, meta.racerCount - 1).map((n, i) => ({ id: `npc-${i}`, name: n.name, isPlayer: false, category: n.category, frameColor: n.frameColor, speedScore: 20.5 + rnd() * 9, distance: 0, finish: null as number | null, timeline: [0] }))];
+  const runners = [{ id: 'player', name: input.playerName ?? '나', isPlayer: true, category: input.playerCategory ?? 'road' as BikeCategory, frameColor: input.playerFrameColor ?? 0xc95746, speedScore: playerSpeedScore(input.playerStats, input.playerSpeedBonus), distance: 0, finish: null as number | null, timeline: [0] }, ...NPCS.slice(0, meta.racerCount - 1).map((n, i) => ({ id: `npc-${i}`, name: n.name, isPlayer: false, category: n.category, frameColor: n.frameColor, speedScore: NPC_SPEED_MIN + rnd() * NPC_SPEED_SPAN, distance: 0, finish: null as number | null, timeline: [0] }))];
   let tick = 0; while (tick < 240 && runners.some((r) => r.finish === null)) { tick++; runners.forEach((r) => { if (r.finish !== null) { r.timeline.push(1); return; } const step = r.speedScore * segmentAt(r.distance / meta.distanceMeters).speedFactor * (1 + (rnd() * 2 - 1) * 0.09); const before = r.distance; r.distance = Math.min(meta.distanceMeters, r.distance + step); if (r.distance >= meta.distanceMeters) { r.finish = Math.round((tick - 1 + (meta.distanceMeters - before) / step) * tickMs); r.timeline.push(1); } else r.timeline.push(r.distance / meta.distanceMeters); }); }
   runners.forEach((r) => { if (r.finish === null) r.finish = tick * tickMs; }); const ordered = [...runners].sort((a, b) => a.finish! - b.finish!); const ranks = new Map(ordered.map((r, i) => [r.id, i + 1])); const racers = runners.map((r) => ({ id: r.id, name: r.name, isPlayer: r.isPlayer, category: r.category, frameColor: r.frameColor, speedScore: r.speedScore, rank: ranks.get(r.id)!, finishTimeMs: r.finish!, timeline: r.timeline })); const player = racers[0]; return { meta, seed: input.seed, tickMs, totalTicks: tick, racers, playerRank: player.rank, playerTimeMs: player.finishTimeMs };
 }

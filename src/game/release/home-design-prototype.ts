@@ -3,6 +3,8 @@ import { DuskWorkshopGarageScene } from './home-design-dusk-workshop';
 import { RetroPixelGarageScene } from './home-design-retro-pixel';
 import { ModernCasualGarageScene } from './home-design-modern-casual';
 import { drawPixelBike, makeWarmColorway, bikeCategoryFromKorean } from './bike-pixel-sprite';
+import { drawBikeEffects, styledColorway, type BikeEffectLayer } from './bike-effects-view';
+import type { BikeVisualSpec } from '../../domain/garage-perks';
 import { formatDayClock } from '../../domain/day-session';
 import { RIVERSIDE_ENDURANCE_RACE } from './race-progress';
 
@@ -32,7 +34,13 @@ export type HomeProgressData = {
     color: number;
     grade: string;
     stage: 1 | 2 | 3;
+    // 강화 스탯에서 계산한 외형 이펙트 사양 (#109)
+    effects: BikeVisualSpec;
   };
+  // Garage 효과 문구 (#109): 대표 자전거 효과(희귀 부품·속도)와 공방 보너스(팁·정산 체력), 다음 수집 보상
+  heroEffectLine: string;
+  garageBonusLine: string;
+  nextMilestoneLabel: string;
   // 제작 중 자전거 (#222): 있으면 Garage에 만들기 버튼이 열린다
   craft?: {
     bikeId: string;
@@ -46,6 +54,8 @@ export type HomeDesignHooks = {
   coins?: number;
   completedOrders?: number;
   progress?: HomeProgressData;
+  // 홈에 들어올 때 안내 바에 한 번 보여 줄 문구(밀린 수집 보상 등). 없으면 기본 안내
+  notice?: string;
   dayNumber?: number;
   dayRemainingMs?: number;
   dayStatusLabel?: string;
@@ -86,9 +96,15 @@ const PANEL_LEFT = 92;
 class WarmPixelGarageScene extends Phaser.Scene {
   private playing = false;
   private toast = '오늘의 주문을 확인하고 작업을 시작해 보세요.';
+  // 대표 자전거 이펙트(반짝임·속도선): 다시 그릴 때 지우고, update에서 움직입니다 (#109)
+  private effects: BikeEffectLayer[] = [];
 
-  constructor(private readonly hooks: HomeDesignHooks = {}) { super('home-design-warm-pixel-garage'); }
+  constructor(private readonly hooks: HomeDesignHooks = {}) {
+    super('home-design-warm-pixel-garage');
+    if (hooks.notice) this.toast = hooks.notice;
+  }
   create() { this.render(); }
+  update(time: number) { this.effects.forEach((layer) => layer.update(time)); }
 
   // outline: 굵은 글자의 1px 외곽선 색. 어두운 배경 위 크림색 글자는 INK 외곽선을 써야 번지지 않고 또렷하다
   private label(x: number, y: number, value: string, size = 12, color = '#3b2531', bold = false, outline = '#fff1c6') {
@@ -130,6 +146,8 @@ class WarmPixelGarageScene extends Phaser.Scene {
   }
 
   private render() {
+    this.effects.forEach((layer) => layer.destroy());
+    this.effects = [];
     this.children.removeAll();
     this.add.rectangle(195, 405, 390, 810, P.cream);
     this.playing ? this.renderPlayPreview() : this.renderGarageHome();
@@ -179,20 +197,19 @@ class WarmPixelGarageScene extends Phaser.Scene {
     this.pixelRect(195, 364, PANEL_W, 392, 0xf2c77e, P.ink, 7).setAlpha(.88);
     this.label(PANEL_LEFT, 183, 'MY LITTLE GARAGE', 10, '#6e473b', true).setDepth(13);
     this.fitLabel(this.label(PANEL_LEFT, 202, progress?.heroBike.name ?? '나의 드림 로드바이크', 17, '#3b2531', true).setDepth(13), 206, 14);
-    this.label(PANEL_LEFT, 226, progress ? `${progress.heroBike.grade} 등급 · 급여로 한 단계씩 성장 중` : '햇살 아래 한 단계씩 완성 중', 11, '#7b5140').setDepth(13);
+    // 대표 자전거 효과 한 줄(#109): 등급 · 희귀 부품 입고 확률 · 출전 속도. 패널 폭(206)에 맞춰 줄입니다.
+    this.fitLabel(this.label(PANEL_LEFT, 226, progress ? `${progress.heroBike.grade} 등급 · ${progress.heroEffectLine}` : '햇살 아래 한 단계씩 완성 중', 11, '#7b5140').setDepth(13), 206, 10);
     // 정비 매트 + 그림자 위에 64×40 그리드 픽셀 스프라이트 로드바이크를 배치
     // (cell 4 → 폭 약 216px, 바퀴 하단 = y + 10*cell = 412로 매트 상단(410)에 닿음)
     this.add.rectangle(195, 416, 220, 12, 0x9c5b3c).setStrokeStyle(2, P.darkWood).setDepth(12);
     this.add.ellipse(195, 419, 200, 26, 0x6e473b, .28).setDepth(12);
     const heroCategory = progress ? bikeCategoryFromKorean(progress.heroBike.category) : 'road';
     const heroColor = progress?.heroBike.color ?? P.red;
-    // 드림 등급(3단계) 달성 시 골드 링, 2단계부터 강화 반짝임을 표시해 성장 상태를 홈에서도 보여준다
+    // 강화 결과를 홈에서도 보여 준다(#109): 스타일 → 컬러웨이, 희귀도 → 반짝임, 성능 → 속도선, 단계 → 오라·골드 링.
     // 링(중심 358, r 98 → 테두리 포함 258.5~457.5)은 '▼ 자전거를 눌러 성장' 라벨(~253) 아래에서 시작한다
-    if (progress && progress.heroBike.stage >= 3) this.add.circle(195, 358, 98, P.gold, .14).setStrokeStyle(3, P.gold).setDepth(12);
-    drawPixelBike(this, 195, 372, 4, { category: heroCategory, colorway: makeWarmColorway(heroColor), depth: 13 });
-    if (progress && progress.heroBike.stage >= 2) {
-      [[112, 300], [270, 286], [252, 392]].forEach(([sx, sy]) => this.add.rectangle(sx, sy, 5, 5, P.gold).setDepth(14));
-    }
+    const heroEffects = progress?.heroBike.effects;
+    if (heroEffects) this.effects.push(drawBikeEffects(this, 195, 372, 4, heroEffects, 13, { ringRadius: 98, ringOffsetY: -14 }));
+    drawPixelBike(this, 195, 372, 4, { category: heroCategory, colorway: styledColorway(heroColor, heroEffects?.styleTier ?? 0), depth: 13 });
     if (progress) {
       // 등급 배지는 패널 안쪽(222~300) 소제목 줄 오른쪽에 둔다. 높이 22(테두리 포함 173.5~198.5)로
       // 패널 상단 테두리(169.5)와 4px, 대표 자전거 이름(202~)과 3.5px 여백
@@ -219,7 +236,9 @@ class WarmPixelGarageScene extends Phaser.Scene {
     const growthPercent = progress ? Math.max(0, Math.min(100, progress.growthPercent)) : 0;
     this.add.rectangle(195, 528, 212, 10, P.darkWood).setDepth(13);
     if (growthPercent > 0) this.add.rectangle(89 + 212 * growthPercent / 100 / 2, 528, 212 * growthPercent / 100, 10, P.green).setDepth(14);
-    this.label(195, 546, `Garage 성장 ${growthPercent}%`, 11, '#5d3b34', true).setOrigin(.5).setDepth(14);
+    // 공방 보너스(#109): 전시 스타일 팁·MTB 컬렉션 정산 체력이 있으면 성장률 옆에 함께 보여 준다
+    const bonusLine = progress?.garageBonusLine ? ` · ${progress.garageBonusLine}` : '';
+    this.fitLabel(this.label(195, 546, `Garage 성장 ${growthPercent}%${bonusLine}`, 11, '#5d3b34', true).setOrigin(.5).setDepth(14), 212, 10);
 
     if (this.hooks.race) this.renderRaceCalendar(this.hooks.race);
     // 안내 바: 대회 패널(570~650) 아래 658~690, 하단 바(703~)와 겹치지 않게
