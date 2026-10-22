@@ -3,7 +3,9 @@
 import Phaser from 'phaser';
 import { drawPixelBike, addPixelBikeImage, makeWarmColorway, bikeCategoryFromKorean } from './bike-pixel-sprite';
 import { CATALOG_BIKES } from './bike-catalog';
-import { CRAFT_PARTS, craftPartCost, dreamUpgradeCost, type CraftPartType } from './meta-progress';
+import { CRAFT_PARTS, craftPartCost, dreamUpgradeCost, type BikeStats, type CraftPartType, type DreamStatKey } from './meta-progress';
+import { drawBikeEffects, styledColorway, type BikeEffectLayer } from './bike-effects-view';
+import { bikeVisualSpec } from '../../domain/garage-perks';
 
 export type BikeCollectionDesignMode = 'warm-catalog' | 'warm-showcase' | 'warm-dream-growth';
 
@@ -30,6 +32,8 @@ export type BikeCollectionDesignHooks = {
     coins: number;
     installedParts: CraftPartType[];
     completed: boolean;
+    // 완성으로 보유 대수 마일스톤에 닿아 받은 무료 상자 수 (#109)
+    milestoneFreeBoxes?: number;
   };
   // 드림 바이크 성장 연동 (#203): 지정 시 강화 수치와 코인 차감을 컨트롤러가 원자적으로 처리합니다.
   dreamStats?: Record<'성능' | '스타일' | '희귀도', number>;
@@ -42,6 +46,12 @@ export type BikeCollectionDesignHooks = {
     // 이번 강화로 승급 보상으로 도감 등록된 드림 등급 자전거 이름 (레벨 디자인 규칙)
     dreamUnlockedBikeNames?: string[];
   };
+  // Garage 효과 현황 (#109): 대표 자전거·효과 합계·카테고리 세트·다음 마일스톤. 다시 그릴 때마다 새로 읽습니다.
+  getPerks?: () => CollectionPerksView;
+  // 성장 화면 스탯 카드 문구: 이 스탯이 무엇을 올리는지와 지금 값
+  statEffectsFor?: (bikeId: string) => StatEffectView[];
+  // 자전거별 강화 스탯(전시대·성장 화면의 외형 이펙트용)
+  getBikeStats?: (bikeId: string) => BikeStats;
   onHome?: () => void;
   onCatalog?: () => void;
   onShowcase?: () => void;
@@ -49,6 +59,27 @@ export type BikeCollectionDesignHooks = {
   onBikeDetail?: (bikeId: string) => void;
   onCoinsChange?: (coins: number) => void;
   onSfx?: (event: 'tap' | 'reward' | 'error') => void;
+};
+
+export type StatEffectView = { stat: DreamStatKey; effect: string; current: string };
+
+export type CollectionPerksView = {
+  heroBikeId: string;
+  tipRate: number;
+  level2BoxRate: number;
+  raceSpeedBonus: number;
+  settlementEnergy: number;
+  categorySets: Array<{
+    category: '로드' | 'MTB' | '그래블' | '미니벨로';
+    owned: number;
+    total: number;
+    tier: number;
+    label: string;
+    // 현재 단계 효과(없으면 빈 문자열)와 다음 단계 안내(모두 달성했으면 빈 문자열)
+    valueLabel: string;
+    nextLabel: string;
+  }>;
+  nextMilestoneLabel: string;
 };
 
 // 홈 화면(따뜻한 생활형 픽셀 Garage)과 동일한 팔레트를 사용합니다.
@@ -93,6 +124,8 @@ class BikeCollectionDesignScene extends Phaser.Scene {
   // 전시 모드 보관 선반 페이지(8대 단위). 보유 자전거가 8대를 넘으면 `+n대 더 ▸` 표시로 넘깁니다.
   private shelfPage = 0;
   private dreamStats = { 성능: 1, 스타일: 1, 희귀도: 1 };
+  // 자전거 외형 이펙트(#109): 다시 그릴 때 지우고 update에서 움직입니다
+  private effects: BikeEffectLayer[] = [];
 
   constructor(mode: BikeCollectionDesignMode, private readonly hooks: BikeCollectionDesignHooks = {}) {
     super('bike-collection-design');
@@ -113,13 +146,25 @@ class BikeCollectionDesignScene extends Phaser.Scene {
     if (hooks.initialBikeId && this.bikes.some((bike) => bike.id === hooks.initialBikeId)) this.selected = hooks.initialBikeId;
     this.toast =
       mode === 'warm-catalog' ? '도감 칸을 눌러 자전거 정보를 확인해 보세요.'
-      : mode === 'warm-showcase' ? '보관 선반에서 자전거를 고른 뒤 전시대를 눌러 배치하세요.'
-      : '파츠를 강화해 드림 바이크의 등급을 키워 보세요.';
+      : mode === 'warm-showcase' ? '전시한 자전거의 스타일 Lv만큼 손님 팁이 늘어요. 선반에서 고른 뒤 전시대를 누르세요.'
+      : '파츠를 강화하면 대회 속도·손님 팁·부품 입고 품질이 올라가요.';
   }
 
   create() { this.render(); }
+  update(time: number) { this.effects.forEach((layer) => layer.update(time)); }
 
   private ownedCount() { return this.bikes.filter((bike) => bike.owned).length; }
+
+  // 자전거의 강화 스탯(훅이 없으면 선택 자전거는 화면 스탯, 나머지는 Lv.1)
+  private statsOf(bikeId: string): BikeStats {
+    if (this.hooks.getBikeStats) return this.hooks.getBikeStats(bikeId);
+    return bikeId === this.selected ? { ...this.dreamStats } : { 성능: 1, 스타일: 1, 희귀도: 1 };
+  }
+
+  private stageOf(stats: BikeStats): 1 | 2 | 3 {
+    const total = stats.성능 + stats.스타일 + stats.희귀도;
+    return total >= 10 ? 3 : total >= 7 ? 2 : 1;
+  }
 
   private label(x: number, y: number, value: string, size = 12, color = '#3b2531', bold = false) {
     return this.add.text(x, y, value, {
@@ -153,6 +198,8 @@ class BikeCollectionDesignScene extends Phaser.Scene {
   private notify(message: string) { this.toast = message; this.render(); }
 
   private render() {
+    this.effects.forEach((layer) => layer.destroy());
+    this.effects = [];
     this.children.removeAll();
     this.add.rectangle(195, 405, 390, 810, P.cream);
     this.view === 'home' ? this.renderHomePreview() : this.renderCollection();
@@ -213,6 +260,9 @@ class BikeCollectionDesignScene extends Phaser.Scene {
     this.label(24, 142, `${owned} / 24`, 14, '#3b2531', true);
     this.add.rectangle(120, 150, 246, 10, P.darkWood).setOrigin(0, .5);
     this.add.rectangle(120, 150, 246 * owned / 24, 10, P.green).setOrigin(0, .5);
+    // 다음 수집 마일스톤 보상(#109)
+    const milestoneLabel = this.hooks.getPerks?.().nextMilestoneLabel;
+    if (milestoneLabel) this.label(120, 128, `다음 수집 보상 · ${milestoneLabel}`, 9, '#a16028', true);
 
     this.bikes.forEach((bike, index) => {
       const x = 60 + (index % 4) * 90;
@@ -273,6 +323,13 @@ class BikeCollectionDesignScene extends Phaser.Scene {
           ? `이해도 ${targetProgress}% · 주문 납품으로 학습하세요`
           : target.hint;
     this.label(28, 662, targetStatus, 11, target.owned ? '#3f7851' : targetRegistered ? '#a16028' : '#a14a38', true).setDepth(9);
+    // 카테고리 세트 보너스 진행(#109): 같은 카테고리를 모을수록 열리는 보너스를 상세 카드 아래 줄에 보여 준다
+    const set = this.hooks.getPerks?.().categorySets.find((item) => item.category === target.category);
+    if (set) {
+      const current = set.valueLabel ? `${set.label} ${set.valueLabel}` : `${set.label} 잠김`;
+      const next = set.nextLabel ? ` · 다음 ${set.nextLabel}` : ' · 완성';
+      this.label(28, 676, `${set.category} 세트 ${set.owned}/${set.total} · ${current}${next}`, 9, '#7b5140', true).setDepth(9);
+    }
     if (target.owned) {
       this.button(322, 652, 108, 44, '상세·성장\n보기', () => {
         this.hooks.onSfx?.('tap');
@@ -329,11 +386,15 @@ class BikeCollectionDesignScene extends Phaser.Scene {
       this.add.ellipse(stand.x, stand.deckY + 12, stand.deckW * .86, 14, 0x6e473b, .3).setDepth(2);
       this.add.rectangle(stand.x, stand.deckY, stand.deckW, 10, P.darkWood).setStrokeStyle(2, P.ink).setDepth(3);
       if (bike) {
-        // 바퀴 하단(y + 10*cell)이 deckY에 닿도록 y를 역산해 배치
-        drawPixelBike(this, stand.x, stand.deckY - 10 * stand.cell, stand.cell, {
-          category: bikeCategoryFromKorean(bike.category), colorway: makeWarmColorway(bike.color), depth: 4,
+        // 바퀴 하단(y + 10*cell)이 deckY에 닿도록 y를 역산해 배치. 전시 자전거도 강화 외형(스타일 컬러웨이·반짝임)을 보여 준다 (#109)
+        const stats = this.statsOf(bike.id);
+        const spec = bikeVisualSpec(stats, this.stageOf(stats));
+        const bikeY = stand.deckY - 10 * stand.cell;
+        if (index === 0) this.effects.push(drawBikeEffects(this, stand.x, bikeY, stand.cell, { ...spec, speedLines: 0 }, 4, { ringRadius: 22 * stand.cell, ringOffsetY: -9 * stand.cell }));
+        drawPixelBike(this, stand.x, bikeY, stand.cell, {
+          category: bikeCategoryFromKorean(bike.category), colorway: styledColorway(bike.color, spec.styleTier), depth: 4,
         });
-        this.tag(stand.x, stand.deckY + 24, `${bike.name} · ${bike.grade}`, 10, 4);
+        this.tag(stand.x, stand.deckY + 24, `${bike.name} · 스타일 Lv.${stats.스타일}`, 10, 4);
       } else {
         this.label(stand.x, stand.y + 8, '+', 26, '#fff1c6', true).setOrigin(.5).setDepth(4).setAlpha(.8);
         this.tag(stand.x, stand.deckY + 24, '빈 전시대', 10, 4);
@@ -344,7 +405,8 @@ class BikeCollectionDesignScene extends Phaser.Scene {
           if (!chosen?.owned) { this.notify('보관 선반에서 보유 자전거를 먼저 선택하세요.'); return; }
           this.showcaseSlots[index] = chosen.id;
           this.hooks.onShowcaseChange?.([...this.showcaseSlots]);
-          this.notify(`${chosen.name}을(를) ${stand.name}에 전시했습니다.`);
+          const tip = this.hooks.getPerks?.().tipRate;
+          this.notify(`${chosen.name}을(를) ${stand.name}에 전시했습니다.${tip !== undefined ? ` 공방 팁 +${Math.round(tip * 100)}%` : ''}`);
         });
     });
 
@@ -405,42 +467,48 @@ class BikeCollectionDesignScene extends Phaser.Scene {
       return;
     }
     const total = Object.values(this.dreamStats).reduce((sum, value) => sum + value, 0);
-    const stage = total >= 10 ? 3 : total >= 7 ? 2 : 1;
+    const stage = this.stageOf(this.dreamStats);
     const gradeName = stage === 3 ? '드림' : stage === 2 ? '고급' : '중급';
     const dream = this.bikes.find((bike) => bike.id === this.selected) ?? this.bikes.find((bike) => bike.id === 'dream-road')!;
+    // 대표 자전거 여부(#109): 홈·대회·부품 입고 효과는 대표 자전거의 스탯을 씁니다
+    const perks = this.hooks.getPerks?.();
+    const isHero = perks ? perks.heroBikeId === dream.id : true;
 
-    this.label(24, 129, 'MY DREAM BIKE', 9, '#6e473b', true);
+    this.label(24, 129, isHero ? 'MY DREAM BIKE · 대표 자전거' : 'MY BIKE', 9, '#6e473b', true);
     this.label(24, 144, dream.name, 15, '#3b2531', true);
     this.pixelRect(340, 150, 84, 30, stage === 3 ? P.gold : 0xffe6a8, stage === 3 ? P.red : P.wood, 5);
     this.label(340, 150, `${gradeName} 등급`, 11, stage === 3 ? '#a14a38' : '#5d3b34', true).setOrigin(.5).setDepth(6);
 
-    if (stage >= 3) this.add.circle(195, 268, 118, P.gold, .16).setStrokeStyle(3, P.gold).setDepth(1);
+    // 강화 외형(#109): 스타일 → 컬러웨이, 희귀도 → 반짝임, 성능 → 속도선, 단계 → 오라·골드 링(이전 반짝임 3픽셀을 대체)
+    const spec = bikeVisualSpec(this.dreamStats, stage);
+    this.effects.push(drawBikeEffects(this, 195, 300, 3, spec, 2, { ringRadius: 118, ringOffsetY: -32 }));
     this.add.ellipse(195, 344, 220, 28, 0x6e473b, .28).setDepth(1);
     // 바퀴 하단(y + 10*cell = 330)이 그림자 타원(y=344) 위에 얹히도록 배치
-    drawPixelBike(this, 195, 300, 3, { category: 'road', colorway: makeWarmColorway(dream.color), depth: 2 });
-    if (stage >= 2) {
-      this.label(195, 200, '★ 파츠 강화 반영', 9, '#a16028', true).setOrigin(.5).setDepth(3);
-      // 강화 반영 시각화: 자전거 주변 골드 반짝임 픽셀
-      [[118, 238], [270, 220], [248, 318]].forEach(([sx, sy]) => {
-        this.add.rectangle(sx, sy, 4, 4, P.gold).setDepth(3);
-      });
-    }
+    drawPixelBike(this, 195, 300, 3, { category: bikeCategoryFromKorean(dream.category), colorway: styledColorway(dream.color, spec.styleTier), depth: 2 });
+    this.label(195, 200, isHero ? '★ 대표 자전거 · 홈·대회·부품 입고에 반영돼요' : '도감에서 고르면 이 자전거가 대표가 돼요', 9, '#a16028', true).setOrigin(.5).setDepth(3);
 
     const growth = Math.round((total - 3) / 9 * 100);
     this.label(24, 371, `드림 등급까지 성장 ${growth}%`, 11, '#5d3b34', true);
     this.add.rectangle(24, 394, 342, 10, P.darkWood).setOrigin(0, .5);
     this.add.rectangle(24, 394, 342 * Math.min(1, (total - 3) / 9), 10, P.green).setOrigin(0, .5);
 
+    const effects = this.hooks.statEffectsFor?.(dream.id);
     (Object.keys(this.dreamStats) as Array<keyof typeof this.dreamStats>).forEach((key, index) => {
       const level = this.dreamStats[key];
       const y = 450 + index * 78;
       const cost = dreamUpgradeCost(level); // 강화 비용 규칙 단일 출처 (#203)
       this.pixelRect(195, y, 350, 64, 0xffe6a8, P.wood, 5);
-      this.label(40, y - 22, key, 12, '#3b2531', true).setDepth(6);
+      this.label(40, y - 24, key, 12, '#3b2531', true).setDepth(6);
       for (let dot = 0; dot < 4; dot++) {
         this.add.circle(48 + dot * 26, y + 12, 8, dot < level ? dream.color : 0xd8b98a).setStrokeStyle(2, P.wood).setDepth(6);
       }
-      this.label(160, y + 4, `Lv.${level} / 4`, 11, level === 4 ? '#a16028' : '#7b5140', true).setDepth(6);
+      this.label(160, y - 2, `Lv.${level} / 4`, 11, level === 4 ? '#a16028' : '#7b5140', true).setDepth(6);
+      // 스탯 효과 설명(#109): 이름 옆에 무엇을 올리는지, 레벨 아래에 지금 값. 오른쪽 강화 버튼(x 248~)과 겹치지 않게 240px 안에 둔다
+      const effect = effects?.find((item) => item.stat === key);
+      if (effect) {
+        this.label(96, y - 22, effect.effect, 9, '#7b5140', true).setDepth(6);
+        this.label(160, y + 13, effect.current, 9, '#3f7851', true).setDepth(6);
+      }
       // 버튼 높이 44(터치 규칙): 카드 64 안에서 그림자(y+26)까지 테두리 안쪽(y+30.5)에 들어옵니다
       if (level < 4) this.button(300, y, 104, 44, `강화 ${cost}`, () => {
         // 통합 모드: 코인 차감·강화 반영·저장을 컨트롤러가 하나의 처리로 수행하고 결과만 표시한다 (#203)
@@ -529,9 +597,10 @@ class BikeCollectionDesignScene extends Phaser.Scene {
         }
         this.hooks.onSfx?.('reward');
         if (result.completed) {
-          // 완성 승격: 보유 상태로 바꾸고 성장 화면으로 전환된다
+          // 완성 승격: 보유 상태로 바꾸고 성장 화면으로 전환된다. 마일스톤 보상(무료 상자)이 있으면 함께 알린다 (#109)
           target.owned = true;
-          this.notify(`${target.name} 완성! Garage에 보유되어 전시·성장이 가능합니다.`);
+          const bonus = result.milestoneFreeBoxes ? ` 수집 ${this.ownedCount()}대 달성 · 무료 상자 +${result.milestoneFreeBoxes}!` : '';
+          this.notify(`${target.name} 완성! Garage에 보유되어 전시·성장이 가능합니다.${bonus}`);
           return;
         }
         this.notify(`${part.name} 장착 완료 · 남은 코인 ${this.coins.toLocaleString()}`);

@@ -27,6 +27,8 @@ export const PICK_BOX_LEVEL = 1;
 // 0.7이던 값을 올렸습니다: 남은 부품이 Lv.3·Lv.4 한 종류뿐일 때 30%가 이미 장착한 종류로 나와 보드가 잔부품으로 차고,
 // Lv.4 주문은 상위 10%가 상자 30개 넘게 들어 체력 한 통으로 끝낼 수 없었습니다(입고 시뮬레이션 2026-10-18).
 export const NEEDED_PART_RATE = 0.85;
+// 상자에서 Lv.2 부품이 나오는 기본 확률. Garage 효과(대표 자전거 희귀도·그래블 컬렉션 등, domain/garage-perks)가 올릴 수 있습니다.
+export const LEVEL2_BOX_RATE = 0.2;
 // 미장착 부품이 이 횟수만큼 연속으로 안 나오면 다음 상자에서 미장착 부품을 보장합니다.
 const MISS_LIMIT = 4;
 
@@ -160,16 +162,20 @@ export function msUntilNextEnergy(state: WorkbenchState, now: number): number {
   return Math.max(0, ENERGY_RECOVERY_MS - (now - state.energyAnchor));
 }
 
+/** 상자 입고에 Garage 효과를 반영하는 옵션. 넘기지 않으면 기본 확률(Lv.2 20%)입니다. */
+export type SupplyOptions = { level2Rate?: number };
+
 /**
- * 입고 부품 추첨: Lv.1 80%·Lv.2 20%, NEEDED_PART_RATE(85%)는 아직 장착하지 않은 부품에서 고릅니다.
+ * 입고 부품 추첨: Lv.1 80%·Lv.2 20%(level2Rate로 조정), NEEDED_PART_RATE(85%)는 아직 장착하지 않은 부품에서 고릅니다.
  * 미장착 부품이 MISS_LIMIT회 연속 안 나왔으면 미장착 부품을 보장합니다.
  */
-export function rollPart(installed: Installed, misses: number, rng: () => number) {
+export function rollPart(installed: Installed, misses: number, rng: () => number, level2Rate = LEVEL2_BOX_RATE) {
   const needs = WORKBENCH_PART_TYPES.filter((type) => !installed[type]);
   const focus = needs.length > 0 && (misses >= MISS_LIMIT || rng() < NEEDED_PART_RATE);
   const pool = focus ? needs : WORKBENCH_PART_TYPES;
   const type = pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))];
-  const level = rng() < 0.2 ? 2 : 1;
+  const rate = Number.isFinite(level2Rate) ? Math.max(0, Math.min(1, level2Rate)) : LEVEL2_BOX_RATE;
+  const level = rng() < rate ? 2 : 1;
   return { part: { type, level }, misses: needs.includes(type) ? 0 : misses + 1 };
 }
 
@@ -230,12 +236,15 @@ export function supplyBlock(state: WorkbenchState): SupplyBlock | null {
   return null;
 }
 
-/** 부품 상자를 열어 다음 입고 칸에 부품 1개를 넣습니다. 무료 상자가 있으면 체력 대신 씁니다. 열 수 없으면 null */
-export function openPartBox(state: WorkbenchState, orders: WorkbenchOrders, now: number, rng: () => number = Math.random): WorkbenchEvent[] | null {
+/**
+ * 부품 상자를 열어 다음 입고 칸에 부품 1개를 넣습니다. 무료 상자가 있으면 체력 대신 씁니다. 열 수 없으면 null.
+ * supply.level2Rate로 Garage 효과(Lv.2 입고 확률)를 반영합니다.
+ */
+export function openPartBox(state: WorkbenchState, orders: WorkbenchOrders, now: number, rng: () => number = Math.random, supply: SupplyOptions = {}): WorkbenchEvent[] | null {
   recoverEnergy(state, now);
   const index = nextIntakeSlot(state.board);
   if (supplyBlock(state)) return null;
-  const roll = rollPart(state.installed, state.misses, rng);
+  const roll = rollPart(state.installed, state.misses, rng, supply.level2Rate ?? LEVEL2_BOX_RATE);
   const free = state.freeBoxes > 0;
   if (free) state.freeBoxes -= 1;
   else {

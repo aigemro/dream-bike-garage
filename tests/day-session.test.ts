@@ -69,14 +69,14 @@ describe('Day 세션: 주문 N건 = 하루 일정', () => {
     expect(prepareNextDay(closing)).toBe(closing);
     const first = settleDay(closing, [], AT);
     expect(first.settled).toBe(true);
-    expect(first.history).toEqual([{ dayNumber: 2, ordersCompleted: 1, earnings: 1000, elapsedActiveMs: 0, endedAt: AT }]);
+    expect(first.history).toEqual([{ dayNumber: 2, ordersCompleted: 1, earnings: 1000, tips: 0, elapsedActiveMs: 0, endedAt: AT }]);
     expect(settleDay(first.day, first.history, AT).settled).toBe(false);
     expect(settleDay(closing, first.history, AT).history).toHaveLength(1);
     expect(prepareNextDay(first.day)).toMatchObject({ dayNumber: 3, status: 'ready', ordersCompleted: 0, earnings: 0 });
   });
 
   it('정산 이력은 최근 14일만 남긴다', () => {
-    const history: DayHistoryEntry[] = Array.from({ length: MAX_DAY_HISTORY }, (_, index) => ({ dayNumber: index + 1, ordersCompleted: 3, earnings: 0, elapsedActiveMs: 0, endedAt: AT }));
+    const history: DayHistoryEntry[] = Array.from({ length: MAX_DAY_HISTORY }, (_, index) => ({ dayNumber: index + 1, ordersCompleted: 3, earnings: 0, tips: 0, elapsedActiveMs: 0, endedAt: AT }));
     const closing = recordOrderDelivery(startDay(createReadyDay(15, 1), AT), 0).day;
     const result = settleDay(closing, history, AT);
     expect(result.history).toHaveLength(MAX_DAY_HISTORY);
@@ -96,8 +96,24 @@ describe('Day 세션: 주문 N건 = 하루 일정', () => {
       current: { dayNumber: 5.8, status: 'unknown', orderTarget: 999, ordersCompleted: -2, earnings: 12.9, elapsedActiveMs: -1, pauseReason: 'nope' },
       history: [null, { dayNumber: 0 }, { dayNumber: 4, ordersCompleted: 3, earnings: 4200, elapsedActiveMs: 1000, endedAt: AT }],
     });
-    expect(parsed.current).toMatchObject({ dayNumber: 5, status: 'ready', orderTarget: 20, ordersCompleted: 0, earnings: 12, elapsedActiveMs: 0, pauseReason: null });
-    expect(parsed.history).toEqual([{ dayNumber: 4, ordersCompleted: 3, earnings: 4200, elapsedActiveMs: 1000, endedAt: AT }]);
+    expect(parsed.current).toMatchObject({ dayNumber: 5, status: 'ready', orderTarget: 20, ordersCompleted: 0, earnings: 12, tips: 0, elapsedActiveMs: 0, pauseReason: null });
+    expect(parsed.history).toEqual([{ dayNumber: 4, ordersCompleted: 3, earnings: 4200, tips: 0, elapsedActiveMs: 1000, endedAt: AT }]);
+  });
+
+  it('손님 팁(#109)은 수입에 더해지고 따로 세어지며, 저장 복구 때 수입을 넘지 않게 보정된다', () => {
+    let day = startDay(createReadyDay(1, 2), AT);
+    day = recordOrderDelivery(day, 1000, 30).day;
+    expect(day).toMatchObject({ earnings: 1030, tips: 30 });
+    const closed = recordOrderDelivery(day, 1400, -7.9);
+    expect(closed.day).toMatchObject({ status: 'closing', earnings: 2430, tips: 30 });
+    const settled = settleDay(closed.day, [], AT);
+    expect(settled.history[0]).toMatchObject({ earnings: 2430, tips: 30 });
+    const parsed = parseDaySession({
+      current: { dayNumber: 3, status: 'paused', orderTarget: 3, ordersCompleted: 1, earnings: 1000, tips: 5000, elapsedActiveMs: 0, startedAt: AT, pauseReason: 'restore' },
+      history: [{ dayNumber: 2, ordersCompleted: 3, earnings: 4200, tips: 'x', elapsedActiveMs: 0, endedAt: AT }],
+    });
+    expect(parsed.current.tips).toBe(1000);
+    expect(parsed.history[0].tips).toBe(0);
   });
 });
 
