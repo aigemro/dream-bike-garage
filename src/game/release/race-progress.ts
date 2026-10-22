@@ -17,6 +17,15 @@ export const RIVERSIDE_ENDURANCE_RACE: RaceMeta = { ...RIVERSIDE_RACE, id: 'rive
 export function isRaceDay(day: number, meta = RIVERSIDE_RACE) { return day > 0 && day % meta.heldEveryDays === 0; }
 export function nextRaceDay(day: number, meta = RIVERSIDE_RACE) { const base = Math.max(1, day); return Math.ceil(base / meta.heldEveryDays) * meta.heldEveryDays; }
 export function daysUntilRace(day: number, meta = RIVERSIDE_RACE) { return nextRaceDay(day, meta) - Math.max(1, day); }
+/** 오늘 대회 참가 가능 여부(#107). 대회일이 아니거나 이미 완주했으면 불가, 참가비를 이미 낸 날은 코인과 무관하게 가능, 그 외에는 참가비만큼 코인이 있어야 합니다. */
+export type RaceEntryStatus = 'not-race-day' | 'completed' | 'paid' | 'ready' | 'coins';
+export function raceEntryStatus(input: { day: number; coins: number; lastRaceDay: number | null; raceEntryDay: number | null }, meta = RIVERSIDE_RACE): RaceEntryStatus {
+  if (!isRaceDay(input.day, meta)) return 'not-race-day';
+  if (input.lastRaceDay === input.day) return 'completed';
+  if (input.raceEntryDay === input.day) return 'paid';
+  return input.coins >= meta.entryFee ? 'ready' : 'coins';
+}
+export function canEnterRace(status: RaceEntryStatus) { return status === 'ready' || status === 'paid'; }
 export function applyRaceEntry(coins: number, meta = RIVERSIDE_RACE) { return coins < meta.entryFee ? { ok: false as const, reason: 'coins' as const, coins, entryFee: meta.entryFee } : { ok: true as const, coins: coins - meta.entryFee, entryFee: meta.entryFee }; }
 /** 시드 고정 난수(mulberry32). 같은 시드는 같은 레이스를 만듭니다. */
 export function randomFor(seed: number) { let state = seed >>> 0; return () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }

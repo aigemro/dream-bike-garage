@@ -62,6 +62,16 @@ export type RewardSettlementHooks = {
   onHome?: () => void;
   onReward?: (coins: number) => void;
   onSfx?: (event: 'reward' | 'tap') => void;
+  // 대회일 정산(#107): 아직 대회를 치르지 않았으면 봉투를 연 뒤 참가 여부를 묻는다. 참가비가 부족하면 참가 버튼을 잠근다.
+  racePrompt?: {
+    raceName: string;
+    entryFee: number;
+    coins: number;
+    affordable: boolean;
+    onEnter: () => void;
+  };
+  // 봉투를 이미 연 정산으로 되돌아올 때(대회 화면에서 ← 홈) 개봉 연출을 건너뛴다
+  alreadyOpened?: boolean;
 };
 
 // 시각 크기가 작은 버튼도 터치 영역은 44px 이상이 되도록 hitArea만 넓힌다
@@ -88,6 +98,9 @@ class RewardSettlementScene extends Phaser.Scene {
   private nextGroup: Phaser.GameObjects.GameObject[] = [];
   // 봉투를 열기 전 다음 안내 카드 자리를 잡아 두는 연한 패널(열면 제거)
   private placeholderGroup: Phaser.GameObjects.GameObject[] = [];
+  // 봉투 덮개·탭 안내: 개봉 연출을 건너뛸 때 열린 모습으로 맞추기 위해 보관한다
+  private flap?: Phaser.GameObjects.Triangle;
+  private hint?: Phaser.GameObjects.Text;
 
   // 보유 코인은 화면에서도 음수가 되지 않게 방어한다
   private initialCoins() {
@@ -134,6 +147,7 @@ class RewardSettlementScene extends Phaser.Scene {
 
     this.message = this.add.text(195, MESSAGE_Y, '급여 봉투를 탭해서 열어보세요.', { fontFamily: FONT, fontSize: '11px', color: CREAM_TEXT, fontStyle: 'bold', align: 'center', wordWrap: { width: 360 } }).setOrigin(0.5, 0).setDepth(10);
     this.buildNextPlaceholder();
+    if (this.hooks.alreadyOpened) this.skipToNext();
   }
 
   update() {
@@ -149,7 +163,7 @@ class RewardSettlementScene extends Phaser.Scene {
     if (progress >= 1) {
       this.phase = 'next';
       this.gaugeLabel.setText('성장 게이지가 올랐습니다 · 다음 목표를 확인하세요');
-      this.showNextOrder();
+      this.showAfterSettled();
     }
   }
 
@@ -169,6 +183,8 @@ class RewardSettlementScene extends Phaser.Scene {
     const hint = this.add.text(0, 58, 'TAP!', { fontFamily: FONT, fontSize: '11px', color: CREAM_TEXT, fontStyle: 'bold' }).setOrigin(0.5);
     const container = this.add.container(x, y, [body, flap, seal, sealText, hint]).setDepth(6).setSize(160, 130);
     container.setInteractive({ useHandCursor: true });
+    this.flap = flap;
+    this.hint = hint;
     container.on('pointerdown', () => this.openEnvelope(flap, hint));
     return container;
   }
@@ -247,6 +263,58 @@ class RewardSettlementScene extends Phaser.Scene {
     nextButton.on('pointerdown', () => { this.hooks.onSfx?.('tap'); this.hooks.onNext ? this.hooks.onNext() : this.message.setText('다음 주문을 준비합니다.'); });
     homeButton.on('pointerdown', () => { this.hooks.onSfx?.('tap'); this.hooks.onHome ? this.hooks.onHome() : this.message.setText('홈으로 돌아갑니다.'); });
     this.message.setText(copy?.doneMessage ?? '정산이 끝났습니다. 다음 주문을 시작하거나 홈으로 돌아가세요.');
+  }
+  // 봉투를 이미 연 정산으로 돌아올 때(대회 화면에서 ← 홈): 개봉 연출 없이 바로 다음 안내 단계에서 시작한다(#107)
+  private skipToNext() {
+    this.phase = 'next';
+    this.tweens.killTweensOf(this.envelope);
+    this.envelope.disableInteractive();
+    this.flap?.setScale(1, -0.8);
+    this.hint?.setVisible(false);
+    const reward = this.hooks.reward ?? REWARD;
+    this.coinText.setText((this.initialCoins() + reward).toLocaleString());
+    this.rewardText.setText(`+${reward.toLocaleString()}`);
+    this.gaugeFill.width = 334 * GAUGE_TO;
+    this.gaugeFill.setPosition(28 + (334 * GAUGE_TO) / 2, 578);
+    this.gaugeLabel.setText('성장 게이지가 올랐습니다 · 다음 목표를 확인하세요');
+    this.showUnlockBanner();
+    this.showAfterSettled();
+  }
+
+  // 정산 연출이 끝난 뒤: 대회일이면 참가 여부를 먼저 묻고, 아니면 다음 영업 안내 카드를 띄운다
+  private showAfterSettled() {
+    if (this.hooks.racePrompt) this.showRacePrompt();
+    else this.showNextOrder();
+  }
+
+  // 대회일 참가 질문(#107): 다음 영업으로 넘어가기 전에 참가할지 묻는다. 참가비가 부족하면 참가 버튼을 잠근다.
+  private showRacePrompt() {
+    const prompt = this.hooks.racePrompt!;
+    this.placeholderGroup.forEach((item) => item.destroy());
+    this.placeholderGroup = [];
+    const centerY = 405;
+    const dim = this.add.rectangle(195, centerY, 390, 810, 0x000000, 0.55).setDepth(30).setInteractive();
+    const panel = this.add.rectangle(195, centerY, 342, 236, CREAM).setStrokeStyle(4, BORDER).setDepth(31);
+    const tag = this.add.rectangle(195, centerY - 96, 96, 22, 0xc95746).setStrokeStyle(2, BORDER).setDepth(32);
+    const tagText = this.add.text(195, centerY - 96, 'RACE DAY', { fontFamily: FONT, fontSize: '10px', color: CREAM_TEXT, fontStyle: 'bold' }).setOrigin(0.5).setDepth(33);
+    const title = this.add.text(195, centerY - 66, `오늘 ${prompt.raceName} 개최!`, { fontFamily: FONT, fontSize: '15px', color: INK, fontStyle: 'bold' }).setOrigin(0.5).setDepth(32);
+    const question = this.add.text(195, centerY - 40, prompt.affordable ? '대회에 참가할까요?' : '참가비가 부족해 오늘은 참가할 수 없어요', { fontFamily: FONT, fontSize: '12px', color: prompt.affordable ? INK : '#c95746', fontStyle: 'bold' }).setOrigin(0.5).setDepth(32);
+    const feeLine = this.add.text(195, centerY - 16, `참가비 ${prompt.entryFee.toLocaleString()} 코인 · 보유 ${prompt.coins.toLocaleString()} 코인`, { fontFamily: FONT, fontSize: '11px', color: MUTED }).setOrigin(0.5).setDepth(32);
+    const buttonY = centerY + 36;
+    const skipButton = widenHitArea(this.add.rectangle(104, buttonY, 140, 40, GOLD).setStrokeStyle(3, BORDER).setDepth(32), 4);
+    const skipText = this.add.text(104, buttonY, '참가 안 함', { fontFamily: FONT, fontSize: '12px', color: INK, fontStyle: 'bold' }).setOrigin(0.5).setDepth(33);
+    const enterButton = this.add.rectangle(286, buttonY, 156, 40, prompt.affordable ? 0x5e9a67 : 0xb9a58a).setStrokeStyle(3, BORDER).setDepth(32);
+    const enterText = this.add.text(286, buttonY, prompt.affordable ? '참가하기 ▶' : '참가 불가', { fontFamily: FONT, fontSize: '12px', color: prompt.affordable ? CREAM_TEXT : '#6e5a4a', fontStyle: 'bold' }).setOrigin(0.5).setDepth(33);
+    const note = this.add.text(195, centerY + 82, prompt.affordable ? '참가하지 않으면 다음 영업으로 넘어갑니다' : '다음 대회까지 코인을 모아 두세요', { fontFamily: FONT, fontSize: '10px', color: MUTED }).setOrigin(0.5).setDepth(32);
+    const group = [dim, panel, tag, tagText, title, question, feeLine, skipButton, skipText, enterButton, enterText, note];
+    group.forEach((item) => item.setAlpha(0));
+    this.tweens.add({ targets: group, alpha: 1, duration: 280, ease: 'Cubic.easeOut' });
+    skipButton.on('pointerdown', () => {
+      this.hooks.onSfx?.('tap');
+      group.forEach((item) => item.destroy());
+      this.showNextOrder();
+    });
+    if (prompt.affordable) widenHitArea(enterButton, 4).on('pointerdown', () => { this.hooks.onSfx?.('tap'); prompt.onEnter(); });
   }
 }
 

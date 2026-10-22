@@ -64,6 +64,9 @@ export type HomeDesignHooks = {
     heldEveryDays: number;
     daysUntil: number;
     entryFee: number;
+    // 보유 코인·참가비 충족 여부(#107): 대회일이어도 참가비가 부족하면 참가 대신 안내만 한다
+    coins: number;
+    affordable: boolean;
     available: boolean;
     completed: boolean;
   };
@@ -172,12 +175,15 @@ class WarmPixelGarageScene extends Phaser.Scene {
     // 좌측 대회 버튼: 대회일에는 RACE GO!, 그 외에는 D-n (훅이 있을 때만)
     if (progress && this.hooks.race) {
       const race = this.hooks.race;
-      const label = race.completed ? '대회\n완료' : race.available ? 'RACE\nGO!' : `대회\nD-${race.daysUntil}`;
+      const enterable = race.available && race.affordable;
+      const label = race.completed ? '대회\n완료' : !race.available ? `대회\nD-${race.daysUntil}` : race.affordable ? 'RACE\nGO!' : '참가비\n부족';
       this.button(38, 205, 54, 48, label, () => {
         this.hooks.onSfx?.('tap');
-        if (race.available) this.hooks.onRace?.();
-        else this.notify(race.completed ? '오늘 대회는 이미 완주했습니다.' : `대회까지 ${race.daysUntil}일 남았습니다.`);
-      }, race.available);
+        if (enterable) this.hooks.onRace?.();
+        else if (race.completed) this.notify('오늘 대회는 이미 완주했습니다.');
+        else if (race.available) this.notify(`참가비 ${race.entryFee.toLocaleString()} 코인이 부족합니다 · 보유 ${race.coins.toLocaleString()} 코인`);
+        else this.notify(`대회까지 ${race.daysUntil}일 남았습니다.`);
+      }, enterable);
     }
     this.button(352, 205, 54, 48, '전시\n보기', () => {
       this.hooks.onSfx?.('tap');
@@ -269,7 +275,11 @@ class WarmPixelGarageScene extends Phaser.Scene {
       // 오늘(골드 칸)은 대회일이어도 INK 글자로 두어 골드 위에서 읽히게 한다
       this.label(x, 614, raceDay ? '대회' : day < race.dayNumber ? '완료' : '영업', 9, today ? '#3b2531' : raceDay ? '#fff1c6' : '#795044', true, raceDay && !today ? '#3b2531' : '#fff1c6').setOrigin(.5).setDepth(16);
     }
-    this.label(195, 637, `참가비 ${race.entryFee.toLocaleString()} 코인 · ${RIVERSIDE_ENDURANCE_RACE.racerCount}명 출전`, 11, '#fff1c6', true, '#3b2531').setOrigin(.5).setDepth(16);
+    // 대회일에 참가비가 부족하면 출전 인원 대신 부족 안내를 보여 준다(#107)
+    const feeLine = race.available && !race.affordable
+      ? `참가비 ${race.entryFee.toLocaleString()} 코인 부족 · 보유 ${race.coins.toLocaleString()} 코인`
+      : `참가비 ${race.entryFee.toLocaleString()} 코인 · ${RIVERSIDE_ENDURANCE_RACE.racerCount}명 출전`;
+    this.label(195, 637, feeLine, 11, '#fff1c6', true, '#3b2531').setOrigin(.5).setDepth(16);
   }
 
   private renderWorkshop() {
