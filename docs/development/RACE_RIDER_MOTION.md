@@ -24,7 +24,9 @@
 | [`race-rider-sprite.ts`](../../src/game/release/race-rider-sprite.ts) | 위 셋 | 자세×위상별 far/near 레이어 그리드, 바퀴 회전 프레임, RGBA 시트 베이크 |
 | [`race-rider-view.ts`](../../src/game/release/race-rider-view.ts) | Phaser | 캔버스 텍스처 등록, 레이서 컨테이너(이미지 6장), `update(state)` |
 | [`race-climax.ts`](../../src/game/release/race-climax.ts) | race-progress | 막판 연출 규칙: 마지막 600m/150m 강도, 슬로모션 곡선, 역전 컷인 진행률(`overtakeCutInAt`), 사진 판정 대상(`photoFinishRival`) |
-| [`race-cinematic-broadcast.ts`](../../src/game/release/race-cinematic-broadcast.ts) | 위 전부 | `RaceBroadcastScene`(중계 공통: 월드·레이서·HUD·순위표·재생 루프·막판 연출·사진 판정 홀드)과 `RaceCinematicScene`(대회일: 참가 → 카운트다운 → 중계 → 결과) |
+| [`race-fx.ts`](../../src/game/release/race-fx.ts) | race-climax·race-rider-motion | 레이서·코스 이펙트 규칙: 출발 신호등, 콜아웃, 먼지·바람 줄기, 스퍼트 오라·잔상, 남은 거리 표지판, 집중선, 순위 변동, 컨페티, 땀, 모션 축소 예산([RACE_BROADCAST_FX.md](RACE_BROADCAST_FX.md)) |
+| [`race-fx-layer.ts`](../../src/game/release/race-fx-layer.ts) | Phaser + race-fx | 위 규칙을 그리는 레이어: 파티클 에미터 5개, 실루엣 잔상, 칩·표지판·집중선 |
+| [`race-cinematic-broadcast.ts`](../../src/game/release/race-cinematic-broadcast.ts) | 위 전부 | `RaceBroadcastScene`(중계 공통: 월드·레이서·HUD·순위표·재생 루프·막판 연출·사진 판정 홀드·이펙트 레이어 호출)과 `RaceCinematicScene`(대회일: 참가 → 카운트다운 → 중계 → 결과) |
 | [`prologue-design.ts`](../../src/game/release/prologue-design.ts) | 위 전부 + [`prologue-story.ts`](../../src/game/release/prologue-story.ts) | 첫 시작 프롤로그: 삼촌의 프로 대회 중계([PROLOGUE.md](../game-design/PROLOGUE.md)) |
 
 `bike-pixel-sprite.ts`·`art-character-pixel.ts`는 `import type Phaser`로 바꿔 node(Vitest)에서도 로딩됩니다. [`tests/race-rider-purity.test.ts`](../../tests/race-rider-purity.test.ts)가 순수 모듈에 Phaser 값 import가 없음을 강제합니다.
@@ -95,6 +97,7 @@
 - 중계 공통 부분은 `RaceBroadcastScene`이 맡고, 하위 씬은 카메라가 따라갈 레이서(`isFocus`)·레이서 외형(`racerSpec`)·이름(`racerLabel`)·좌상단 배지·구간 해설·남은 거리 표기·카운트다운 유무와 앞뒤 장면만 정합니다.
 - 프롤로그는 결승 3km 지점부터 이미 달리는 장면이라 카운트다운·스탠딩 스타트 없이 순항 상태(바퀴 1.8 rev/s, 85rpm)로 시작하고, 삼촌 머리 위에 이름표를 띄웁니다. 막판 연출의 문구·초상화·효과음은 하위 씬 훅(`finalStretchBanner`·`overtakeCutIn`·`cutInPortrait`·`photoFinishLabel`·`onClimaxEvent`)으로만 바꿉니다([PROLOGUE.md](../game-design/PROLOGUE.md) 4.1절).
 - 레이서 역할은 캐릭터 역할(정비사·점장·고객·삼촌)에 레이스 전용 `선수`를 더한 `RiderRole`입니다. `선수`는 `teamColor`로 저지·헬멧을 팀 색으로 칠하고(`riderPaletteFor`), 삼촌·선수는 빕 숏 차림이라 정강이를 피부색으로 그립니다(`shin`). 텍스처 캐시 키에 팀 색이 들어갑니다.
+- 레이서·코스 이펙트(2026-10-23, [RACE_BROADCAST_FX.md](RACE_BROADCAST_FX.md)): 출발 신호등·대시 먼지, 자세별 먼지·바람 줄기, 자세 전환 콜아웃 칩, 마지막 600m 스퍼트 오라·잔상, 남은 거리 표지판·출발선, 역전·사진 판정 집중선, 순위 변동 팝업, 골 컨페티, 땀방울. 규칙은 `race-fx.ts`, 그리기는 `race-fx-layer.ts`이며 레이서 뷰는 실루엣 복제(`cloneSilhouette`)·번쩍임(`setFlash`)·접지점·머리 위치 보조 메서드를 제공합니다. 잔상은 실루엣을 복제해 2px 스냅 위치에만 두므로 픽셀 격자 규칙(정수 배율·회전 없음)을 지킵니다.
 
 ## 10. 테스트
 

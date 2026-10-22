@@ -240,6 +240,7 @@ export class MvpReleaseIntegrationController {
           frameColor: progress.heroBike.color,
         },
         entryFeePaid: this.state.raceEntryDay === dayNumber,
+        onSfx: (event) => this.play(event),
         onEntered: ({ coins }) => {
           this.state.coins = coins;
           this.state.raceEntryDay = dayNumber;

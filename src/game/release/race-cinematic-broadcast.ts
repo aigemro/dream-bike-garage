@@ -25,6 +25,9 @@ import {
   type RiderPosture,
 } from './race-rider-motion';
 import { RaceRiderTextures, RacerView, snapToCell, type RacerSpec } from './race-rider-view';
+import { RaceFxLayer } from './race-fx-layer';
+import { RANK_POPUP_FROM, RANK_SETTLE_MS, confettiCountFor, rankChangeFor } from './race-fx';
+import type { ReleaseSfxEvent } from './release-audio';
 import { drawCharacterPortrait, type PixelCharacterEmotion, type PixelCharacterRole } from './art-character-pixel';
 import {
   FINAL_STRETCH_METERS,
@@ -65,6 +68,9 @@ import {
 //   기록 차 표식)으로 보여 준 뒤 코스팅 홀드를 거쳐 결과·보상 정산으로 넘어갑니다. 연출은 실제 시간으로, 경기 재생은 timeScale을 곱해 흐릅니다.
 // - 결승선 카메라: 주인공이 결승선을 넘으면 카메라가 결승선에 멈추고 지면 스크롤도 멈춥니다. 주인공은 코스팅한 만큼 오른쪽으로 빠져나가고,
 //   뒤따르는 선수는 결승선으로 들어옵니다. 결승선을 넘은 선수는 각자 바퀴 속도로 결승선 너머로 굴러갑니다(pastLinePx).
+// - 레이서·코스 이펙트(race-fx 규칙 → race-fx-layer 그리기, 레이싱 게임 연출 문법 참고): 출발 신호등·대시 먼지, 자세별 먼지·바람 줄기,
+//   자세 전환 콜아웃 칩, 마지막 600m 스퍼트 오라·잔상, 남은 거리 표지판·출발선, 역전·사진 판정 집중선, 순위 변동 팝업, 골 컨페티, 땀방울.
+//   입자·잔상은 경기 재생 시간(timeScale)을 따라 슬로모션·정지에서 함께 느려지고, 화면 연출(칩·집중선·컨페티)은 실제 시간으로 흐릅니다.
 
 export type RaceCinematicHooks = {
   initialCoins?: number;
@@ -76,7 +82,12 @@ export type RaceCinematicHooks = {
   onEntered?: (value: { coins: number; entryFee: number }) => void;
   onExit?: () => void;
   onSettled?: (value: { rank: number; reward: number; coins: number }) => void;
+  /** 효과음(카운트다운·출발·마지막 600m·역전·사진 판정·보상). 통합 컨트롤러의 ReleaseAudio와 연결 */
+  onSfx?: (event: ReleaseSfxEvent) => void;
 };
+
+/** 중계 연출 이벤트(효과음 연결용): 카운트다운 한 단계 · 출발 · 마지막 600m 진입 · 역전 컷인 · 사진 판정 */
+export type BroadcastCue = 'countdown' | 'go' | 'final' | 'overtake' | 'photo-finish';
 
 const META = RIVERSIDE_ENDURANCE_RACE;
 const WIDTH = 390;
@@ -214,6 +225,12 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
   private rivalTagBox?: Phaser.GameObjects.Rectangle;
   private rivalTagPointer?: Phaser.GameObjects.Triangle;
   private rivalTagLabel?: Phaser.GameObjects.Text;
+  // 레이서·코스 이펙트(출발 신호등·먼지·콜아웃·오라·잔상·거리 표지판·집중선·순위 변동·컨페티). 규칙은 race-fx, 그리기는 race-fx-layer
+  private fx?: RaceFxLayer;
+  /** 순위 변동 팝업 기준 순위와, 새 순위가 유지된 시간(접전 깜빡임 방지) */
+  private lastFocusRank?: number;
+  private pendingRank?: number;
+  private pendingRankMs = 0;
 
   // 월드 레이어
   private hillFar?: Phaser.GameObjects.Container;
@@ -317,8 +334,8 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     return 'PHOTO FINISH';
   }
 
-  /** 막판 연출 이벤트(효과음 연결용): 마지막 600m 진입 · 역전 컷인 · 사진 판정 */
-  protected onClimaxEvent(_event: 'final' | 'overtake' | 'photo-finish'): void {}
+  /** 중계 연출 이벤트(효과음 연결용): 카운트다운 단계 · 출발 · 마지막 600m 진입 · 역전 컷인 · 사진 판정 */
+  protected onClimaxEvent(_event: BroadcastCue): void {}
 
   // ─── 공통 유틸 ────────────────────────────────────────────────────
 
@@ -393,6 +410,9 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     this.speedLines = [];
     this.letterbox = [];
     this.rivalTag = undefined;
+    this.lastFocusRank = undefined;
+    this.pendingRank = undefined;
+    this.pendingRankMs = 0;
     // 주인공 레이서 순항이 1.8 rev/s가 되도록 rev/km를 역산하고 모든 레이서에 같은 값을 씁니다
     const focus = result.racers.find((racer) => this.isFocus(racer)) ?? result.racers[0];
     this.revsPerKm = wheelRevsPerKmForCruise(focus.speedScore, result.tickMs);
@@ -405,6 +425,17 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     this.riderTextures.prewarm(specs);
 
     this.buildWorld();
+    // 이펙트 레이어는 월드(깊이 0~4) 뒤에, 레이서보다 먼저 만들어 표지판이 레이서 뒤에 놓이게 합니다
+    this.fx?.destroy();
+    this.fx = new RaceFxLayer(this, {
+      width: WIDTH,
+      viewTop: HUD_BOTTOM + LETTERBOX_PX,
+      viewBottom: ROAD_BOTTOM - LETTERBOX_PX,
+      roadTop: ROAD_TOP,
+      roadBottom: ROAD_BOTTOM,
+      font: FONT,
+    });
+    this.fx.buildCourseMarks(result.meta.distanceMeters);
     this.buildRacers(specs);
     this.buildClimaxLayer();
     this.buildHud();
@@ -415,11 +446,20 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
       this.beginRacing();
       return;
     }
+    // 출발 신호등(마리오 카트·F1식): 단계마다 빨간 램프가 늘고 GO!에 전부 초록, 모든 레이서 뒷바퀴에서 대시 먼지
+    this.fx.showStartLights(steps.length);
     steps.forEach((step, index) => {
       this.time.delayedCall(COUNTDOWN_STEP_MS * index, () => {
+        const last = index === steps.length - 1;
         const label = this.text(WIDTH / 2, 236, step, step === 'GO!' ? 40 : 52).setOrigin(0.5).setDepth(60).setStroke(INK_TEXT, 8);
         this.tweens.add({ targets: label, scale: { from: 0.5, to: 1.15 }, alpha: { from: 1, to: 0 }, duration: 560, ease: 'Cubic.easeOut', onComplete: () => label.destroy() });
-        if (index === steps.length - 1) this.beginRacing();
+        this.fx?.setStartStep(index, steps.length);
+        this.onClimaxEvent(last ? 'go' : 'countdown');
+        if (last) {
+          this.fx?.startBurst(this.racers);
+          this.cameras.main.shake(120, 0.003);
+          this.beginRacing();
+        }
       });
     });
   }
@@ -658,7 +698,8 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
       this.blendCamera(focus, delta);
     }
     // 결승선 화면 x: 달리는 동안은 바퀴 월드 거리로 다가오고, 주인공이 넘은 뒤에는 카메라가 결승선에 멈춥니다(결승선 카메라)
-    const lineX = focusFinished ? this.cameraAnchorX : this.cameraAnchorX + (1 - focus.progress - this.cameraShift) * this.focusWorldDistancePx(focus);
+    const courseWorldPx = this.focusWorldDistancePx(focus);
+    const lineX = focusFinished ? this.cameraAnchorX : this.cameraAnchorX + (1 - focus.progress - this.cameraShift) * courseWorldPx;
     this.racers.forEach((racer) => {
       const x = racer.progress >= 1 ? lineX + racer.pastLinePx : this.screenX(racer.progress, focus.progress);
       racer.view.setPosition(x, this.laneY(racer.lane));
@@ -676,6 +717,18 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
       this.onRacingFrame(focus);
       if (focusFinished) this.beginPhotoFinish(focus);
     }
+    // 레이서·코스 이펙트: 표지판은 결승선과 같은 월드 거리로, 입자·잔상은 막판 강도·자세·경기 재생 시간으로 갱신합니다
+    this.fx?.updateCourseMarks(lineX, courseWorldPx, distanceMeters);
+    this.fx?.update({
+      deltaMs: delta,
+      scaledDeltaMs: scaled,
+      timeScale: this.timeScale,
+      racing: this.phase === 'racing',
+      racers: this.racers,
+      focus,
+      climax: this.climax,
+      groundSpeedPx: groundSpeed,
+    });
     // 홀드가 끝나면 맨 마지막에 하위 씬으로 넘깁니다(하위 씬이 화면을 비우므로 이 프레임에서 레이서를 더 만지면 안 됨)
     if (holdDone) {
       this.phase = 'after';
@@ -806,6 +859,8 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     this.timeScale = OVERTAKE_SLOWMO.scale;
     this.cameras.main.flash(100, 255, 241, 198, false);
     this.cameras.main.shake(260, 0.006);
+    // 만화 컷인식 집중선: 슬로모션 동안 화면 가장자리에서 중앙으로 모입니다
+    this.fx?.focusLines('overtake');
     this.onClimaxEvent('overtake');
 
     const copy = this.overtakeCutIn(focus.data.name);
@@ -837,6 +892,13 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     this.speedLines.forEach((line) => line.shape.setVisible(false));
     this.cameras.main.flash(180, 255, 255, 255, false);
     this.cameras.main.shake(160, 0.005);
+    this.fx?.focusLines('photo-finish');
+    // 골 컨페티: 포디움(3위 안)이면 결승 마커 위에서 터집니다. 1위가 가장 많고, 정지 화면 위에서도 실제 시간으로 떨어집니다
+    const confetti = confettiCountFor(focus.data.rank);
+    if (confetti > 0) {
+      const lineX = this.cameraAnchorX;
+      this.time.delayedCall(90, () => this.fx?.confetti(lineX, ROAD_TOP - 14, confetti));
+    }
     this.onClimaxEvent('photo-finish');
 
     const viewTop = HUD_BOTTOM + LETTERBOX_PX;
@@ -937,7 +999,9 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
   private updateHud(focus: BroadcastRacer, delta: number) {
     const result = this.result!;
     const meta = this.raceMeta();
-    this.rankText?.setText(`${focus.progress >= 1 ? focus.data.rank : this.liveRankOf(focus)}위 / ${result.racers.length}`);
+    const liveRank = focus.progress >= 1 ? focus.data.rank : this.liveRankOf(focus);
+    this.rankText?.setText(`${liveRank}위 / ${result.racers.length}`);
+    this.trackRankChange(liveRank, focus, delta);
     // 순위표는 텍스트 재생성 비용을 줄이기 위해 일정 주기로만 갱신한다
     this.boardTimerMs += delta;
     if (this.boardTimerMs >= BOARD_REFRESH_MS) {
@@ -962,6 +1026,32 @@ export abstract class RaceBroadcastScene extends Phaser.Scene {
     const tierLabel: Record<string, string> = { crisp: '스핀업', fast: '순항', blur: '고속' };
     this.motionText?.setText(`${focus.progress >= 1 ? '완주 · 코스팅' : postureLabel[focus.motion.posture]}\n${rpm}rpm · 바퀴 ${tierLabel[focus.motion.tier]}`);
     if (focus.motion.posture === 'sprint' && focus.progress >= 0.85 && this.phase === 'racing') this.cameras.main.shake(40, 0.0012);
+  }
+
+  /**
+   * 순위 변동 팝업(레이싱 게임 포지션 체인지): 주인공 순위가 바뀌어 RANK_SETTLE_MS 동안 유지되면 HUD 순위 옆에 '▲ 3위'/'▼ 5위'.
+   * 출발 직후 무리가 갈리는 동안(RANK_POPUP_FROM 미만)과 결승 통과 뒤에는 띄우지 않습니다.
+   */
+  private trackRankChange(liveRank: number, focus: BroadcastRacer, delta: number) {
+    if (this.phase !== 'racing' || focus.progress < RANK_POPUP_FROM || focus.progress >= 1) return;
+    if (this.lastFocusRank === undefined) {
+      this.lastFocusRank = liveRank;
+      return;
+    }
+    if (liveRank === this.lastFocusRank) {
+      this.pendingRank = undefined;
+      return;
+    }
+    if (this.pendingRank !== liveRank) {
+      this.pendingRank = liveRank;
+      this.pendingRankMs = 0;
+    }
+    this.pendingRankMs += delta;
+    if (this.pendingRankMs < RANK_SETTLE_MS) return;
+    const change = rankChangeFor(this.lastFocusRank, liveRank);
+    this.lastFocusRank = liveRank;
+    this.pendingRank = undefined;
+    if (change) this.fx?.rankChange(change, 318, 30);
   }
 }
 
@@ -1017,6 +1107,12 @@ export class RaceCinematicScene extends RaceBroadcastScene {
 
   protected cutInPortrait() {
     return { role: '정비사' as const, emotion: '기본' as const };
+  }
+
+  // 중계 연출 → 기존 효과음(전용 효과음은 에셋 운영에서 정합니다)
+  protected onClimaxEvent(event: BroadcastCue): void {
+    const sfx: Record<BroadcastCue, ReleaseSfxEvent> = { countdown: 'tap', go: 'start', final: 'parcel', overtake: 'merge', 'photo-finish': 'complete' };
+    this.hooks.onSfx?.(sfx[event]);
   }
 
   protected onBroadcastFinished(): void {
@@ -1087,6 +1183,7 @@ export class RaceCinematicScene extends RaceBroadcastScene {
       this.coins = entry.coins;
       if (!this.hooks.entryFeePaid) this.hooks.onEntered?.({ coins: entry.coins, entryFee: entry.entryFee });
       coinText.setText(`보유 코인 ${this.coins.toLocaleString()}`);
+      this.hooks.onSfx?.('tap');
       this.startBroadcast(simulateRace({
         seed: this.hooks.seed ?? 20260903,
         playerStats: this.playerStats(),
@@ -1143,6 +1240,7 @@ export class RaceCinematicScene extends RaceBroadcastScene {
       if (claimed) return;
       claimed = true;
       this.coins = reward.coins;
+      this.hooks.onSfx?.('reward');
       this.hooks.onSettled?.({ rank: player.rank, reward: reward.reward, coins: reward.coins });
       button.setFillStyle(GOLD);
     });

@@ -11,6 +11,7 @@ const PURE_MODULES = [
   'src/game/release/race-rider-motion.ts',
   'src/game/release/race-rider-sprite.ts',
   'src/game/release/race-climax.ts',
+  'src/game/release/race-fx.ts',
   'src/game/release/prologue-story.ts',
 ];
 
