@@ -1,5 +1,15 @@
 # 메인 홈 화면 구조
 
+> [!WARNING]
+> **현행 기준 아님 (2026-10-29 안내)**: 이 문서는 8월 협의안이며 출시 빌드의 홈과 다릅니다. 출시 빌드 기준은 다음 문서를 봅니다.
+>
+> - 화면 목록과 파일: [UI 스타일 가이드 1절](../design/UI_STYLE_GUIDE.md) (홈은 `home-design-prototype.ts`의 `warm-pixel-garage`)
+> - 화면 흐름: [머지 작업대·Day 세션 1절](../development/MERGE_WORKBENCH_DAY_SESSION.md), 첫 시작은 [프롤로그 2절](PROLOGUE.md)
+> - Garage·대표 자전거·전시대: [자전거 수집·강화 효과](BIKE_COLLECTION_GROWTH.md)
+> - 범위: [MVP 범위](MVP.md)
+>
+> 본문은 기획자가 갱신할 부분이라 고치지 않았습니다(**기획 확정 대기**).
+
 > 문서 상태: **협의안 (Lab 검증 전)**  
 > 출처: 2026-08-06 주간 회의 화이트보드 스케치 및 2026-08-13 추가 확인  
 > ([회의 기록](../meetings/2026-08-06-weekly-sync.md))  
