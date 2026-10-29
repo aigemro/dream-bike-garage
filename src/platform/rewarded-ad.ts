@@ -1,7 +1,8 @@
 // 보상형 광고 어댑터: 앱인토스 SDK 전면 광고 API(loadFullScreenAd·showFullScreenAd)를 RewardedAdPort로 감쌉니다.
 // SDK를 직접 불러오지 않고 함수를 받아서, 웹 빌드에 SDK가 들어가지 않고 가짜 SDK로 테스트할 수 있습니다.
 // 공식 권장: load → show → load → show, 보상은 userEarnedReward 이벤트에서만 지급(dismissed만으로 지급 금지).
-import type { RewardedAdOutcome, RewardedAdPort } from './types';
+// impression·실패 이유는 observer로 밖에 알리기만 하고(분석 기록용), 결과·보상 판정에는 쓰지 않습니다.
+import type { RewardedAdFailReason, RewardedAdObserver, RewardedAdOutcome, RewardedAdPort } from './types';
 
 /** 앱인토스 공식 테스트용 리워드 광고 그룹 ID. 테스트에서 운영 ID를 쓰면 제재를 받을 수 있습니다. */
 export const TEST_REWARDED_AD_GROUP_ID = 'ait-ad-test-rewarded-id';
@@ -60,27 +61,36 @@ export function createFullScreenRewardedAd(sdk: FullScreenAdSdk, adGroupId: stri
     return request;
   }
 
+  // 관찰자 오류가 광고 흐름을 막지 않게 합니다.
+  const notify = (call: () => void) => { try { call(); } catch { /* 분석 기록 실패는 무시 */ } };
+  const fail = (observer: RewardedAdObserver | undefined, reason: RewardedAdFailReason): RewardedAdOutcome => {
+    notify(() => observer?.onFailure?.(reason));
+    return 'failed';
+  };
+
   return {
     preload() {
       if (!busy && adGroupId && supported()) void load();
     },
-    async show(onReward, signal) {
-      if (busy || !adGroupId || !supported()) return 'failed';
+    async show(onReward, signal, observer) {
+      if (busy) return fail(observer, 'busy');
+      if (!adGroupId || !supported()) return fail(observer, 'unsupported');
       busy = true;
       try {
-        if (!(await load())) return 'failed';
+        if (!(await load())) return fail(observer, 'load');
         if (signal?.aborted) return 'dismissed';
         loaded = false; // 한 번 보여 준 광고는 다시 쓸 수 없어 다음 요청에서 새로 불러옵니다.
         return await new Promise<RewardedAdOutcome>((resolve) => {
           let done = false;
           let earned = false;
+          let impressed = false;
           let cleanup: (() => void) | undefined;
           const finish = (outcome: RewardedAdOutcome) => {
             if (done) return;
             done = true;
             signal?.removeEventListener('abort', onAbort);
             cleanup?.();
-            resolve(earned ? 'rewarded' : outcome);
+            resolve(earned ? 'rewarded' : outcome === 'failed' ? fail(observer, 'show') : outcome);
           };
           const onAbort = () => finish('dismissed');
           signal?.addEventListener('abort', onAbort, { once: true });
@@ -89,7 +99,11 @@ export function createFullScreenRewardedAd(sdk: FullScreenAdSdk, adGroupId: stri
               options: { adGroupId },
               onEvent: (event) => {
                 if (done) return;
-                if (event.type === 'userEarnedReward') {
+                if (event.type === 'impression') {
+                  if (impressed) return;
+                  impressed = true;
+                  notify(() => observer?.onImpression?.());
+                } else if (event.type === 'userEarnedReward') {
                   if (earned) return;
                   earned = true;
                   try { onReward(); } catch { /* 보상 반영 실패가 광고 흐름을 막지 않게 합니다. */ }

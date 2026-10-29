@@ -1,4 +1,5 @@
 // 웹 브라우저(GitHub Pages·로컬 개발) 플랫폼: localStorage와 DOM 이벤트로 구현합니다.
+import { consoleEventLogger } from './analytics';
 import { createMockRewardedAd } from './mock-rewarded-ad';
 import type { AsyncKeyValueStorage, GamePlatform, HapticKind, RewardedAdPort } from './types';
 
@@ -59,5 +60,6 @@ export function createBrowserPlatform(): GamePlatform {
     onSafeAreaChange() { return () => {}; },
     async lockPortrait() {},
     rewardedAd: browserRewardedAd(),
+    logEvent: consoleEventLogger,
   };
 }

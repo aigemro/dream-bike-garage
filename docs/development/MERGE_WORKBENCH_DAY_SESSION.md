@@ -26,6 +26,7 @@ Lab 코드를 복사하지 않고, 채택한 규칙만 메인 구조(`src/domain
 | `src/domain/merge-assist.ts` | 합성 추천 보조(막힘 판정·먼저 합칠 쌍 추천·추천 시점). 작업대 상태를 바꾸지 않음 |
 | `src/domain/energy-refill.ts` | 체력 소진 판정·가득 참까지 남은 시간, 보상형 광고 충전 정책(`REWARDED_AD_POLICY`)·제안 조건(`adOffer`)·보상 반영(`grantAdRefill`) |
 | `src/platform/rewarded-ad.ts` · `mock-rewarded-ad.ts` | 앱인토스 SDK 전면 광고(리워드) 어댑터, 웹 개발용 모의 광고. 게임 코드는 `GamePlatform.rewardedAd`만 사용 |
+| `src/platform/analytics.ts` · `src/game/release/ad-refill-events.ts` | 분석 이벤트 기록(`GamePlatform.logEvent` → 앱인토스 `Analytics.log`)과 광고 충전 이벤트 순서(제안 → 요청 → 노출 → 보상/닫힘/실패 → 플레이 지속) |
 | `src/domain/day-session.ts` | Day 규칙(준비 → 영업 중 ⇄ 일시정지 → 마감 → 정산 → 다음 Day). 기존 `src/game/release/day-session.ts`를 대체 |
 | `src/game/release/release-state.ts` | 저장 상태 v4와 이전 저장(v2·v3) 이전 |
 | `src/data/level-design.ts` · `src/domain/progression.ts` | 영업일 주문표(레벨 디자인) 데이터와 순번↔영업일·검증 규칙 ([레벨 디자인 문서](../game-design/LEVEL_DESIGN.md)) |
@@ -35,7 +36,7 @@ Lab 코드를 복사하지 않고, 채택한 규칙만 메인 구조(`src/domain
 
 작업대는 한 행동(상자 열기·합성)에 납품을 1건만 확정하고, 납품하면 그 행동의 정리를 거기서 멈춥니다. 보드에 남은 부품은 화면이 납품 연출을 마치고 다음 주문 카드로 바꾼 뒤 `settleWorkbench`로 다음 주문에 장착하며, 4종이 차면 그 주문도 이어서 납품합니다(연출이 끝날 때마다 1건). 하루 마감 중에는 하지 않고 다음 영업일에 작업대로 들어올 때 이어 갑니다. 화면을 떠나 이 단계를 건너뛰어도 작업대 진입이나 다음 행동의 정리에서 똑같이 이어집니다. 이렇게 해서 급여·Day 집계가 1건씩 반영되고, 하루 마감 뒤 주문표가 밀리지 않으며, 다음 자전거 카드가 나오기 전에 이월 부품이 미리 장착돼 보이지 않습니다(2026-10-18 테스트 피드백).
 
-주문의 단일 출처는 `src/data/level-design.ts`의 영업일 주문표입니다. `meta-progress.ts`의 `ORDER_METAS`는 이 주문표를 누적 주문 순번 순서로 펼친 것이고(위치 = 순번, 31일차부터는 21~30일차 반복), 작업대·홈·정산 화면이 모두 여기서 이름·카테고리·요구 레벨·보상을 읽습니다. 영업 d일차 = 순번 3(d−1)~3(d−1)+2이며, 저장 복구·다음 영업일 시작 때 작업대 순번을 Day 상태에 맞춥니다(`release-state.ts`의 `alignWorkbenchToDay`). 이전 게임 화면이 쓰는 `merge-prototype.ts`의 `ORDERS`는 더 이상 쓰지 않습니다.
+주문의 단일 출처는 `src/data/level-design.ts`의 영업일 주문표입니다. `meta-progress.ts`의 `ORDER_METAS`는 이 주문표를 누적 주문 순번 순서로 펼친 것이고(위치 = 순번, 31일차부터는 21~30일차 반복), 작업대·홈·정산 화면이 모두 여기서 이름·카테고리·요구 레벨·보상을 읽습니다. 영업 d일차 = 순번 3(d−1)~3(d−1)+2이며, 저장 복구·다음 영업일 시작 때 작업대 순번을 Day 상태에 맞춥니다(`release-state.ts`의 `alignWorkbenchToDay`). 이전 게임 화면(`merge-prototype.ts`·`game-screen-mobile.ts`·`auto-placement.ts`·`part-selection.ts`)은 머지 코어 E안 채택에 따라 삭제했습니다(2026-10-10, #91).
 
 ## 3. 작업대 규칙과 수치
 
@@ -79,7 +80,7 @@ Lab 메인 적용안 4.2절의 계약을 따릅니다.
 - #77에서 확정할 수치: 하루 주문 수(현재 3, `DAY_ORDER_TARGET`), 체력 최대·소모·회복(현재 30/1/10분), 레이스 참가비·상금.
 - 보상형 광고 체력 충전(9절)은 #92 초안으로 적용한 뒤 2026-10-18에 횟수·간격 제한을 없앴습니다. 밸런스 확정은 #73, 토스 실기기 검증·운영 광고 ID 전환·광고 정책 확인은 #92에서 합니다. 체력 카드·광고 버튼도 등급분류 신청 화면에 포함됩니다.
 - 기획 문서 `docs/game-design/MERGE_GAME_SYSTEM_DESIGN.md`의 5~8절(택배 주문·모양 부품·제한 시간)은 이번 변경 전 기준이라 기획 쪽 갱신이 필요합니다.
-- 이전 게임 화면(`game-screen-mobile.ts`, `merge-prototype.ts`, `auto-placement.ts`, `part-selection.ts`)은 컨트롤러에서 더 이상 쓰지 않습니다. 채택이 확정되면 정리합니다.
+- 이전 게임 화면(`game-screen-mobile.ts`, `merge-prototype.ts`, `auto-placement.ts`, `part-selection.ts`)은 머지 코어 E안 채택에 따라 삭제했습니다(2026-10-10, #91).
 
 ## 7. 합성 추천 보조 (Lab #264 B안)
 
@@ -144,11 +145,32 @@ Lab A안과 다른 점: '체력 없이 할 수 있는 일' 문구와 체력 회�
 | 웹 개발 서버 · 웹 + `?mockAd` | 모의 광고(끝까지 보기·중간에 닫기·불러오기 실패를 직접 고름) |
 | 배포 웹 · 안드로이드 테스트 앱 | 없음(광고 버튼·표식 숨김, 체력 카드는 회복 시간만) |
 
+### 이벤트 기록
+
+광고 충전 흐름을 `GamePlatform.logEvent`로 남깁니다. 앱인토스에서는 SDK `Analytics.log`로 보내고([SDK 문서 3절](APPS_IN_TOSS_SDK_SETUP.md)), 웹·안드로이드 테스트 앱은 개발 서버에서만 콘솔(`[event] …`)에 찍습니다. 순서는 `src/game/release/ad-refill-events.ts`가 정하고 `tests/ad-refill-events.test.ts`가 가짜 SDK로 확인합니다.
+
+| 이벤트 (`log_name`) | `log_type` | 언제 | 파라미터 |
+|---|---|---|---|
+| `ad_refill_offer` | impression | 체력 카드에서 광고 버튼이 '가능'으로 보인 순간(카드를 열 때마다 1회) | `entry`(energy: 체력 표시 / box: 체력 0에서 상자), `energy`, `ads_rewarded` |
+| `ad_refill_request` | click | 광고 버튼을 눌러 시청을 시작함(제안 조건을 통과한 경우만) | `request_id`, `entry`, `energy`, `ads_rewarded` |
+| `ad_refill_impression` | event | SDK `impression`(광고가 실제로 노출됨, 요청당 1회) | `request_id` |
+| `ad_refill_reward` | event | SDK `userEarnedReward`(지급 시점) | `request_id`, `granted`(중복·조건 미달이면 false), 지급 뒤 `energy`·`ads_rewarded` |
+| `ad_refill_dismissed` | event | 보상 없이 닫힘 | `request_id`, `reason`(closed / escape) |
+| `ad_refill_failed` | event | 미지원·불러오기·표시 실패 | `request_id`, `reason`(unsupported / load / show / busy / error) |
+| `ad_refill_escape` | click | 60초 뒤 '돌아가기'를 누름 | `request_id` |
+| `ad_refill_continue` | event | 광고가 끝난 뒤 같은 실행에서 처음 부품 상자를 엶(무료 상자 포함, 다음 광고 요청 전까지 1회) | `request_id`, `outcome`(rewarded / dismissed / failed), `seconds_after_ad` |
+
+- 보상 지급 규칙은 그대로입니다. 어댑터는 `impression`·실패 이유를 `RewardedAdObserver`로 알리기만 하고, 보상은 `userEarnedReward`에서만 지급합니다.
+- `ads_rewarded`는 지금까지 받은 광고 보상 누적 횟수(`release.adRefill.count`)입니다. 처음 만들 때(#98)는 오늘 남은 횟수(`ads_left`)였지만, 하루 횟수 제한을 없앤 뒤(2026-10-18) 메인에 다시 반영하면서 누적 횟수로 바꿨습니다.
+- 개인 식별 정보는 넣지 않습니다. `request_id`는 광고 요청마다 새로 만드는 임의 값(도메인 중복 방지와 같은 값)이고, 사용자 식별은 SDK가 붙이는 `anonymous_key`에 맡깁니다.
+- 플레이 지속 확인은 앱 실행 동안만 유지합니다(저장하지 않음). 앱을 다시 켠 뒤의 상자 열기는 세지 않습니다.
+- 지표 예: 제안 대비 요청률(`request / offer`), 노출 대비 보상률(`reward / impression`), 실패 이유 분포, 광고 뒤 플레이 지속률(`continue / request`).
+
 ### 남은 일 (#92)
 
 - 토스 Android/iOS 실기기에서 테스트 광고 노출·보상·닫힘·복귀, 이벤트 순서(보상 → 닫힘), 광고 중 앱 종료 뒤 복구 확인. `npm run dev:toss`의 SDK 모의는 보상 이벤트를 보내지 않아 항상 '끝까지 보지 않음'으로 끝납니다.
 - 사업자·정산 정보 등록, 리워드 광고 그룹 생성(보상 이름·수량을 '알바 체력 10'과 맞춤), 운영 ID를 운영 빌드에만 설정
-- 제안·요청·노출·보상·실패 이벤트 기록(분석)은 아직 없음
+- 이벤트 기록은 적용함(위 표). 콘솔 **분석 > 이벤트** 화면은 출시 다음 날부터 집계되므로, 출시 전에는 토스 앱 테스트 번들에서 순서만 확인합니다(샌드박스는 콘솔 출력만).
 - 횟수 제한이 없어 연속 시청이 가능합니다. 앱인토스 광고 운영 정책(빈도·횟수 상한, 광고 재고 부족 시 불러오기 실패 빈도)을 출시 전 확인하고, 필요하면 `REWARDED_AD_POLICY`에 상한을 다시 둡니다. 저장소 문서에는 상한을 요구하는 근거가 없습니다([웹뷰 가이드](APPS_IN_TOSS_WEBVIEW_GUIDE.md)는 '최신 검수·운영 정책 확인'만 안내).
 
 ## 10. 합성 보너스·확정 상자 (2026-10-18)

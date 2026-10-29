@@ -33,5 +33,6 @@ export function createAndroidAppPlatform(): GamePlatform {
     async lockPortrait() {},
     // 테스트 앱에는 광고가 없습니다.
     rewardedAd: null,
+    // 분석 이벤트는 웹과 같이 개발 중 콘솔에만 남깁니다(테스트 앱은 수집하지 않음).
   };
 }

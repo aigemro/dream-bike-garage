@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { startTitleLoadingPrototype } from './title-loading-design';
 import { startHomeDesignPrototype } from './home-design-prototype';
 import { startGuideOverlayPrototype } from './guide-overlay-design';
+import { createAdRefillEvents, type AdRefillRequestEvents, type AdRefillSnapshot } from './ad-refill-events';
 import { startMergeWorkbenchScreen, type RewardedAdWatchResult, type WorkbenchRewardedAd } from './merge-workbench-screen';
 import { startRewardSettlementPrototype } from './reward-settlement-design';
 import { startBikeCollectionDesignPrototype, type BikeCollectionDesignMode, type CollectionPerksView } from './bike-collection-design-prototype';
@@ -131,6 +132,9 @@ export class MvpReleaseIntegrationController {
   // 보상형 광고 시청 중이면 true. 그동안 앱 전환으로 Day를 재개하거나 소리를 다시 켜지 않습니다.
   private adWatching = false;
   private adAbort?: AbortController;
+  // 광고 충전 이벤트 기록(#92). 플레이 지속 확인을 위해 화면이 바뀌어도 앱 실행 동안 유지합니다.
+  private readonly adEvents = createAdRefillEvents((name, params) => this.platform.logEvent(name, params));
+  private adRequest?: AdRefillRequestEvents;
 
   constructor(
     private readonly parent: HTMLElement,
@@ -497,8 +501,19 @@ export class MvpReleaseIntegrationController {
       offer: () => adOffer(this.state.workbench),
       preload: () => port.preload(),
       watch: () => this.watchRewardedAd(port),
-      cancel: () => this.adAbort?.abort(),
+      cancel: () => {
+        if (!this.adAbort) return;
+        this.adRequest?.escaped();
+        this.adAbort.abort();
+      },
+      offerShown: (entry) => this.adEvents.offerShown(entry, this.adSnapshot()),
+      boxOpened: () => this.adEvents.boxOpened(),
     };
+  }
+
+  // 이벤트 파라미터용 게임 수치: 현재 체력·지금까지 받은 광고 보상 누적 횟수
+  private adSnapshot(): AdRefillSnapshot {
+    return { energy: this.state.workbench.energy, rewarded: this.state.adRefill?.count ?? 0 };
   }
 
   /**
@@ -506,6 +521,7 @@ export class MvpReleaseIntegrationController {
    * 1) 제안 조건 확인 → Day 일시정지(광고 시간은 영업 시간에 넣지 않음)·소리 정지 → 광고 직전 저장
    * 2) SDK 보상 이벤트를 받은 순간 체력 +10·기록을 반영하고 바로 저장(닫히기 전에 앱이 종료돼도 보상 유지)
    * 3) 광고가 끝나면 소리·Day를 되돌립니다. 같은 요청의 중복 보상은 요청 식별자로 막습니다.
+   * 요청·SDK 노출·보상·닫힘·실패는 adEvents로 기록합니다(제안 노출·돌아가기·플레이 지속은 작업대가 알려 줌).
    */
   private async watchRewardedAd(port: RewardedAdPort): Promise<RewardedAdWatchResult> {
     if (this.adWatching) return 'busy';
@@ -513,7 +529,9 @@ export class MvpReleaseIntegrationController {
     recoverEnergy(this.state.workbench, now);
     if (!adOffer(this.state.workbench).available) return 'unavailable';
     this.adWatching = true;
-    const requestId = `ad-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const events = this.adEvents.requested(this.adSnapshot());
+    this.adRequest = events;
+    const { requestId } = events;
     const resumeAfter = this.screen === 'game' && this.state.day.status === 'active';
     if (resumeAfter) this.pauseToday('ad');
     this.audio.setSuspended(true);
@@ -526,19 +544,23 @@ export class MvpReleaseIntegrationController {
       const rewardAt = Date.now();
       recoverEnergy(this.state.workbench, rewardAt);
       const record = grantAdRefill(this.state.workbench, this.state.adRefill, requestId, rewardAt);
-      if (!record) return;
-      this.state.adRefill = record;
-      granted = true;
-      this.saveState();
-      void this.save.flush();
-    }, abort.signal).catch(() => 'failed' as const);
+      if (record) {
+        this.state.adRefill = record;
+        granted = true;
+        this.saveState();
+        void this.save.flush();
+      }
+      events.rewarded(record !== null, this.adSnapshot());
+    }, abort.signal, events.observer).catch(() => 'error' as const);
+    events.finished(outcome);
+    if (this.adRequest === events) this.adRequest = undefined;
     if (this.adAbort === abort) this.adAbort = undefined;
     this.adWatching = false;
     const visible = typeof document === 'undefined' || !document.hidden;
     this.audio.setSuspended(!visible);
     if (resumeAfter && this.screen === 'game' && visible) this.resumeToday();
     if (granted) return 'rewarded';
-    return outcome === 'rewarded' ? 'failed' : outcome;
+    return outcome === 'rewarded' || outcome === 'error' ? 'failed' : outcome;
   }
 
   private pauseToday(reason: DayPauseReason) {
