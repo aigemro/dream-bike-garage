@@ -9,11 +9,13 @@ import {
   type WheelTier,
 } from './race-rider-motion';
 import {
+  POSTURE_RIG,
   RIDER_CELL,
   bakeBikeBody,
   bakeRiderSheet,
   bakeShadow,
   bakeWheelSheet,
+  baseHip,
   riderFrameName,
   wheelFrameName,
   wheelSheetKey,
@@ -134,6 +136,7 @@ export class RacerView {
   readonly container: Phaser.GameObjects.Container;
   private readonly far: Phaser.GameObjects.Image;
   private readonly near: Phaser.GameObjects.Image;
+  private readonly body: Phaser.GameObjects.Image;
   private readonly wheels: Phaser.GameObjects.Image[];
   private readonly riderTexture: Phaser.Textures.Texture;
   private readonly wheelTexture: Phaser.Textures.Texture;
@@ -142,7 +145,7 @@ export class RacerView {
   private lastWheelKey = '';
   readonly wheelRadiusPx: number;
 
-  constructor(scene: Phaser.Scene, textures: RaceRiderTextures, readonly spec: RacerSpec) {
+  constructor(private readonly scene: Phaser.Scene, textures: RaceRiderTextures, readonly spec: RacerSpec) {
     const rig = bikeRig(spec.category);
     const cell = RIDER_CELL;
     const rider = textures.riderSheet(spec.category, spec.role, spec.teamColor);
@@ -165,10 +168,50 @@ export class RacerView {
       ay - wheel.sheet.center - rig.axleY,
     ));
     this.far = place(scene.add.image(0, 0, rider.key, riderFrameName('seated', 'far', 0)), rider.sheet.anchor.dx, rider.sheet.anchor.dy);
-    const bodyImage = place(scene.add.image(0, 0, body.key), body.image.anchor.dx, body.image.anchor.dy);
+    this.body = place(scene.add.image(0, 0, body.key), body.image.anchor.dx, body.image.anchor.dy);
     this.near = place(scene.add.image(0, 0, rider.key, riderFrameName('seated', 'near', 0)), rider.sheet.anchor.dx, rider.sheet.anchor.dy);
 
-    this.container = scene.add.container(0, 0, [shadowImage, ...this.wheels, this.far, bodyImage, this.near]);
+    this.container = scene.add.container(0, 0, [shadowImage, ...this.wheels, this.far, this.body, this.near]);
+  }
+
+  /** 그림자를 뺀 레이서 이미지(뒷바퀴·앞바퀴·원경·몸체·근경) */
+  private silhouetteParts(): Phaser.GameObjects.Image[] {
+    return [...this.wheels, this.far, this.body, this.near];
+  }
+
+  /**
+   * 현재 프레임 그대로의 단색 실루엣(잔상용). 같은 텍스처·프레임·셀 오프셋을 복제해 컨테이너 위치에 겹쳐 둡니다.
+   * 그림자는 빼고, 호출한 쪽이 위치 이동·투명도·파괴를 맡습니다.
+   */
+  cloneSilhouette(tint: number, alpha: number): Phaser.GameObjects.Container {
+    const parts = this.silhouetteParts().map((image) => this.scene.add
+      .image(image.x, image.y, image.texture.key, image.frame.name)
+      .setOrigin(0, 0)
+      .setScale(RIDER_CELL)
+      .setTintFill(tint));
+    return this.scene.add.container(this.container.x, this.container.y, parts).setAlpha(alpha);
+  }
+
+  /** 레이서를 한 색으로 번쩍이게 하거나(color 지정) 원래 색으로 되돌립니다(생략). 콜아웃 순간에 씁니다 */
+  setFlash(color?: number): void {
+    this.silhouetteParts().forEach((image) => (color === undefined ? image.clearTint() : image.setTintFill(color)));
+  }
+
+  /** 뒷바퀴 접지점(컨테이너 기준 px): 먼지·바람 줄기가 나오는 자리 */
+  rearContactOffset(): { dx: number; dy: number } {
+    const rig = bikeRig(this.spec.category);
+    return { dx: (rig.rear[0] - rig.gridWidth / 2) * RIDER_CELL, dy: (rig.rear[1] - rig.axleY + rig.wheel.radius) * RIDER_CELL };
+  }
+
+  /** 머리 중심 근사(컨테이너 기준 px): 땀방울·콜아웃 기준점. 자세별 차이는 2px 안쪽이라 착좌 리그로 고정합니다 */
+  headOffset(): { dx: number; dy: number } {
+    const rig = bikeRig(this.spec.category);
+    const hip = baseHip(rig);
+    const posture = POSTURE_RIG.seated;
+    return {
+      dx: (hip.x + posture.shoulder.x + posture.head.x + 2 - rig.gridWidth / 2) * RIDER_CELL,
+      dy: (hip.y + posture.shoulder.y + posture.head.y - 6 - rig.axleY) * RIDER_CELL,
+    };
   }
 
   private frame(texture: Phaser.Textures.Texture, name: string): Phaser.Textures.Frame {
