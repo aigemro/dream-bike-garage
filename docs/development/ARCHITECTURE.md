@@ -21,9 +21,13 @@
 - `prompts`: 재사용 가능한 AI 작업 프롬프트
 - `tests`: 도메인 단위 테스트
 
-## MVP 상태 흐름
+## 상태 흐름
 
-`GameState`는 보드 아이템, 주문 완료 목록, Garage 수집 목록과 ID 생성 상태를
-보유합니다. Phaser Scene은 버튼·드래그 입력을 도메인 함수에 전달하고 반환된
-새 상태를 다시 렌더링합니다. Merge·조립·납품 규칙은 Phaser에 의존하지 않아
-Vitest로 독립 검증할 수 있습니다.
+`src/main.ts`가 시작하는 `src/game/release/mvp-release-integration.ts`가 화면(`ReleaseScreen`)을 전환하고 진행 상태를 들고 있습니다.
+
+- `src/game/release/release-state.ts`: 저장되는 진행 상태 `ReleaseState`(코인·납품 수·Day·작업대·설정 등)와 생성·복구(이전 저장 형식 변환 포함) 함수. Phaser에 의존하지 않습니다.
+- `src/domain/merge-workbench.ts`: 머지 작업대 규칙(상자 열기·합성·장착·납품·알바 체력)
+- `src/domain/day-session.ts`: Day 세션 규칙(주문 3건 = 하루, 준비 → 영업 → 마감 → 정산)
+- `src/platform/save-store.ts`: 계정 슬롯 저장소. 부팅 때 저장 항목(`release`·`collection`·`growth`)을 한 번에 읽고, 쓰기는 메모리에 바로 반영한 뒤 저장소(앱인토스 Storage·localStorage)에 순서대로 내보냅니다.
+
+Phaser 화면은 입력을 도메인 함수로 처리하고 변경·납품을 훅(`onChange`·`onDelivered`)으로 알립니다. 통합 모듈은 코인·Day 통계를 반영하고 `SaveStore`로 저장합니다. 규칙은 Phaser에 의존하지 않아 Vitest로 독립 검증합니다. 작업대·Day 세션 상세는 [MERGE_WORKBENCH_DAY_SESSION.md](MERGE_WORKBENCH_DAY_SESSION.md)를 따릅니다.

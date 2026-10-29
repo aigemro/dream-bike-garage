@@ -7,7 +7,7 @@
 ## 1. 목적과 적용 범위
 
 - 목적: Lab 프로토타입(A/B/C안 비교용)을 출시 경로에 연결하면서 남은 프로토타입 라벨·데모 문구·가짜 HUD 값을 없애고, 화면마다 달랐던 글자 크기·뒤로가기·터치 영역 규칙을 하나로 맞춥니다.
-- 적용 대상: `src/game/release/mvp-release-integration.ts`의 `ReleaseScreen`이 여는 아래 화면 전부. 릴리스에서 쓰지 않는 파일(home-design-bike/dusk/modern/retro, merge-prototype.ts, game-screen-mobile.ts, MergeBoardScene)과 각 파일 안의 미사용 모드·`preview` 분기는 대상이 아닙니다.
+- 적용 대상: `src/game/release/mvp-release-integration.ts`의 `ReleaseScreen`이 여는 아래 화면 전부. 각 파일 안의 미사용 모드·`preview` 분기는 대상이 아닙니다.
 - 논리 해상도: 390×810 세로 고정. 이 문서의 좌표·크기는 모두 논리 px입니다.
 
 | 화면 (`ReleaseScreen`) | 파일 | 비고 |

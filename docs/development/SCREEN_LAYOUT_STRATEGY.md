@@ -20,10 +20,12 @@
 
 | 구성 | 위치 | 현재 상태 |
 |---|---|---|
-| 페이지 셸 | `index.html` | 제목·설명이 있는 `header.game-header` + `#game-container` 섹션 |
+| 페이지 셸 | `index.html` | 제목·설명이 있는 페이지 헤더 + `#game-container` 섹션 |
 | 셸 스타일 | `src/ui/styles.css` | `#game-container`에 테두리, 둥근 모서리, 그림자를 준 **액자형 레이아웃**. `aspect-ratio: 390/810`과 `100dvh` 계산으로 크기 결정 |
-| 캔버스 설정 | `src/game/config.ts` | `width: 390, height: 810`, `Phaser.Scale.FIT` + `CENTER_BOTH` |
-| Scene 좌표 | `src/game/scenes/MergeBoardScene.ts` | 390×810 논리 좌표에 고정 상수(`BOARD_X`, `BOARD_Y` 등)로 배치 |
+| 캔버스 설정 | 공통 Phaser 설정 파일 | `width: 390, height: 810`, `Phaser.Scale.FIT` + `CENTER_BOTH` |
+| Scene 좌표 | 7×9 보드 Scene | 390×810 논리 좌표에 고정 상수(`BOARD_X`, `BOARD_Y` 등)로 배치 |
+
+> 2026-10-29 메모: 이 표는 작성 당시(2026-08) 구조다. 그중 페이지 헤더는 `index.html`에서 빠졌고, 공통 Phaser 설정 파일과 7×9 보드 Scene은 레거시 MVP 코드로 삭제했다. 지금은 `src/game/release/`의 화면마다 `start*` 함수에서 같은 값(390×810, `FIT` + `CENTER_BOTH`)으로 Phaser 게임을 만들고, 배치 상수도 각 화면 파일에 둔다(예: `merge-workbench-screen.ts`의 `BOARD_LEFT`·`BOARD_TOP`).
 
 이 구조는 데스크톱 브라우저에서 게임을 소개하고 확인하기에는 적합하지만, 그대로 앱인토스 WebView에 올리면 다음 문제가 생긴다.
 
@@ -131,7 +133,7 @@ B안 전환 여부와 무관하게, Scene 배치는 지금부터 아래 규칙�
 
 ### 2단계 — Scene 세이프 존 정리 (MVP~품질 향상 초기)
 
-- [ ] `MergeBoardScene`의 고정 상수 배치를 상단/하단 60px 세이프 존 규칙에 맞게 점검·조정
+- [ ] 출시 화면(`src/game/release/`)의 고정 상수 배치를 상단/하단 60px 세이프 존 규칙에 맞게 점검·조정
 - [ ] 레이아웃 상수를 한곳(예: `src/game/layout.ts`)으로 모아 이후 동적 계산 전환에 대비
 
 ### 3단계 — 기기 비율 대응 결정 (품질 향상, 2026-10)
@@ -171,7 +173,7 @@ Lab에서 화면·렌더링 관련 트랙을 만들 때는 아래를 공통 규�
 
 ### 7.3 트랙 → 메인 반영 규칙
 
-- Lab 트랙의 화면 코드도 메인에 복사하지 않는다. **채택된 규칙(수치·방식)만 이 문서에 갱신**하고, 메인 구조(`index.html`, `src/ui`, `src/game/config.ts`)에 맞게 재구현한다.
+- Lab 트랙의 화면 코드도 메인에 복사하지 않는다. **채택된 규칙(수치·방식)만 이 문서에 갱신**하고, 메인 구조(`index.html`, `src/ui`, `src/game/release`)에 맞게 재구현한다.
 - 검증 결과로 이 문서의 규격(기준 해상도, 세이프 존 수치 등)이 바뀌면, 문서를 먼저 갱신하고 관련 트랙에 변경 사실을 공유한다.
 
 ## 8. 화면 점검 체크리스트
