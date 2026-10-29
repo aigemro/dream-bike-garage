@@ -171,6 +171,13 @@ export function confettiCountFor(rank: number): number {
   return 0;
 }
 
+/** 결과 화면 제목: 1위 WINNER! · 포디움(2~3위) PODIUM FINISH · 그 밖은 FINISH. 사진 판정 연출 문구('PHOTO FINISH')와 따로 둡니다 */
+export function raceResultTitle(rank: number): string {
+  if (rank === 1) return 'WINNER!';
+  if (rank <= 3) return 'PODIUM FINISH';
+  return 'FINISH';
+}
+
 /** 주인공 땀방울 간격(ms): 오르막·스퍼트에서만 */
 export function sweatIntervalFor(posture: RiderPosture, finished: boolean): number | undefined {
   if (finished) return undefined;

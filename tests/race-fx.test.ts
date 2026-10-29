@@ -18,6 +18,7 @@ import {
   poleLabel,
   poleScreenX,
   poleTone,
+  raceResultTitle,
   rankChangeFor,
   showsCalloutForOthers,
   startLampsAt,
@@ -181,6 +182,14 @@ describe('집중선·순위 변동·골 컨페티·땀방울', () => {
     expect(confettiCountFor(3)).toBeGreaterThan(0);
     expect(confettiCountFor(4)).toBe(0);
     expect(confettiCountFor(8)).toBe(0);
+  });
+
+  it('결과 제목은 순위에 맞춘다(7위에 PHOTO FINISH를 쓰지 않음)', () => {
+    expect(raceResultTitle(1)).toBe('WINNER!');
+    expect(raceResultTitle(2)).toBe('PODIUM FINISH');
+    expect(raceResultTitle(3)).toBe('PODIUM FINISH');
+    expect(raceResultTitle(4)).toBe('FINISH');
+    expect(raceResultTitle(8)).toBe('FINISH');
   });
 
   it('땀방울은 오르막·스퍼트에서만, 완주 후에는 없다', () => {
