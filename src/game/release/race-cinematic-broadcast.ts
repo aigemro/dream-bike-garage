@@ -26,7 +26,7 @@ import {
 } from './race-rider-motion';
 import { RaceRiderTextures, RacerView, snapToCell, type RacerSpec } from './race-rider-view';
 import { RaceFxLayer } from './race-fx-layer';
-import { RANK_POPUP_FROM, RANK_SETTLE_MS, confettiCountFor, rankChangeFor } from './race-fx';
+import { RANK_POPUP_FROM, RANK_SETTLE_MS, confettiCountFor, raceResultTitle, rankChangeFor } from './race-fx';
 import type { ReleaseSfxEvent } from './release-audio';
 import { drawCharacterPortrait, type PixelCharacterEmotion, type PixelCharacterRole } from './art-character-pixel';
 import {
@@ -1214,7 +1214,7 @@ export class RaceCinematicScene extends RaceBroadcastScene {
     // 다른 화면과 같은 DAY 태그를 상단에 작게 둔다
     this.add.rectangle(44, 24, 66, 22, RED).setStrokeStyle(2, INK);
     this.text(44, 24, `DAY ${this.dayNumber()}`, 10).setOrigin(0.5);
-    this.text(WIDTH / 2, 90, 'PHOTO FINISH', 28).setOrigin(0.5);
+    this.text(WIDTH / 2, 90, raceResultTitle(player.rank), 28).setOrigin(0.5);
     this.text(WIDTH / 2, 140, `${player.rank}위 · ${formatRaceTime(player.finishTimeMs)}`, 22).setOrigin(0.5);
 
     // 결과 보드: 상위 3명 + 내 기록
