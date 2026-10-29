@@ -1,18 +1,12 @@
 import Phaser from 'phaser';
-import { DuskWorkshopGarageScene } from './home-design-dusk-workshop';
-import { RetroPixelGarageScene } from './home-design-retro-pixel';
-import { ModernCasualGarageScene } from './home-design-modern-casual';
 import { drawPixelBike, makeWarmColorway, bikeCategoryFromKorean } from './bike-pixel-sprite';
 import { drawBikeEffects, styledColorway, type BikeEffectLayer } from './bike-effects-view';
 import type { BikeVisualSpec } from '../../domain/garage-perks';
 import { formatDayClock } from '../../domain/day-session';
 import { RIVERSIDE_ENDURANCE_RACE } from './race-progress';
 
-export type HomeDesignPrototypeMode =
-  | 'warm-pixel-garage'
-  | 'dusk-workshop-garage'
-  | 'retro-pixel-garage'
-  | 'modern-casual-garage';
+// 출시 홈은 warm-pixel 한 가지입니다. startHomeDesignPrototype 시그니처를 유지하려고 모드 타입을 남겨 둡니다.
+export type HomeDesignPrototypeMode = 'warm-pixel-garage';
 
 // 릴리스 통합용 실제 진행 데이터 (#205): 지정 시 홈 화면의 고정 문구·샘플 숫자를 대체합니다.
 export type HomeProgressData = {
@@ -410,22 +404,11 @@ class WarmPixelGarageScene extends Phaser.Scene {
   private notify(message: string) { this.toast = message; this.render(); }
 }
 
-export function startHomeDesignPrototype(parent: string, mode: HomeDesignPrototypeMode, hooks: HomeDesignHooks = {}) {
-  // 모드별 씬과 기본 배경색·렌더 설정을 분기합니다. (modern-casual 모드만 부드러운 벡터 렌더링)
-  const scene =
-    mode === 'dusk-workshop-garage' ? new DuskWorkshopGarageScene()
-    : mode === 'retro-pixel-garage' ? new RetroPixelGarageScene()
-    : mode === 'modern-casual-garage' ? new ModernCasualGarageScene()
-    : new WarmPixelGarageScene(hooks);
-  const backgroundColor =
-    mode === 'dusk-workshop-garage' ? '#141a2e'
-    : mode === 'retro-pixel-garage' ? '#101026'
-    : mode === 'modern-casual-garage' ? '#bfe9f2'
-    : '#fff1c6';
-  const smooth = mode === 'modern-casual-garage';
+export function startHomeDesignPrototype(parent: string, _mode: HomeDesignPrototypeMode, hooks: HomeDesignHooks = {}) {
+  // warm-pixel 홈: 크림색 배경 + 픽셀 아트 렌더(안티앨리어싱 끔·픽셀 스냅)
   return new Phaser.Game({
-    type: Phaser.AUTO, parent, width: 390, height: 810, backgroundColor,
+    type: Phaser.AUTO, parent, width: 390, height: 810, backgroundColor: '#fff1c6',
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-    scene, render: { antialias: smooth, pixelArt: !smooth, roundPixels: !smooth },
+    scene: new WarmPixelGarageScene(hooks), render: { antialias: false, pixelArt: true, roundPixels: true },
   });
 }
