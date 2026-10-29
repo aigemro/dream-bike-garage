@@ -44,6 +44,7 @@
 | AI 도구 병행 운영(Claude/Codex) | [docs/development/AI_ASSISTANT_WORKFLOW.md](docs/development/AI_ASSISTANT_WORKFLOW.md) |
 | 앱인토스 출시 가이드 | [docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md](docs/development/APPS_IN_TOSS_WEBVIEW_GUIDE.md) |
 | 앱인토스 SDK 설정·빌드 명령·화면 맞춤 | [docs/development/APPS_IN_TOSS_SDK_SETUP.md](docs/development/APPS_IN_TOSS_SDK_SETUP.md) |
+| 게임 등급분류(GRAC) 신청 자료(내용설명서·심의 동영상 촬영 순서) | [docs/development/GRAC_SUBMISSION.md](docs/development/GRAC_SUBMISSION.md) |
 | 안드로이드 테스트 APK (휴대폰 앱 형태 테스트) | [docs/development/ANDROID_TEST_APK.md](docs/development/ANDROID_TEST_APK.md) |
 | 웹·앱 화면 구조 전략 | [docs/development/SCREEN_LAYOUT_STRATEGY.md](docs/development/SCREEN_LAYOUT_STRATEGY.md) |
 | UI 스타일 가이드(화면 공통 규칙) | [docs/design/UI_STYLE_GUIDE.md](docs/design/UI_STYLE_GUIDE.md) |
