@@ -192,7 +192,7 @@ class ProfileDesignScene extends Phaser.Scene {
     this.add.circle(318, 340, 38, theme.fill).setStrokeStyle(3, P.red).setDepth(6);
     this.label(318, 331, '현재 직급', 9, '#a14a38', true).setOrigin(.5).setDepth(7);
     this.label(318, 346, PROFILE.ranks[PROFILE.rankIndex], 11, '#a14a38', true).setOrigin(.5).setDepth(7);
-    this.label(112, 388, 'DREAM BIKE GARAGE · 오늘부터 자전거 부자', 9, '#7b5140', true).setDepth(6);
+    this.label(112, 388, '오늘부터 자전거 부자', 9, '#7b5140', true).setDepth(6);
 
     // 실적 6칸: 통합 컨트롤러가 실제로 추적하는 값만 표시
     const stats: Array<[string, string]> = [

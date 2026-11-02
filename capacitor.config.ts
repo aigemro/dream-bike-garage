@@ -5,7 +5,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.aigemro.dreambikegarage.test',
-  appName: '자전거 부자 TEST',
+  appName: '오늘부터 자전거 부자',
   webDir: 'dist-android',
   android: {
     // 상태 바·하단 내비게이션 바 영역을 --safe-area-inset-* CSS 변수로 받습니다(styles.css에서 여백으로 사용).

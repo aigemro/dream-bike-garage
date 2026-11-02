@@ -1,10 +1,10 @@
 // 안드로이드 테스트 앱 아이콘·시작 화면 생성
 // 원본: assets/app-icon-source.png (정사각형 픽셀아트, 600×600 이상)
 // 1) @capacitor/assets 입력 이미지를 만들고 2) 안드로이드 리소스를 생성한 뒤
-// 3) 세로 고정 앱에서 쓰지 않는 가로·다크 모드·ldpi 시작 화면을 지웁니다(APK 용량 절약).
+// 3) 세로 고정 앱에서 쓰지 않는 가로·다크 모드·ldpi 시작 화면을 지우고 4) 시작 화면을 팔레트 PNG로 줄입니다(APK 용량 절약).
 // 사용: npm run icons:android
 import { execSync } from 'node:child_process';
-import { rmSync, readdirSync } from 'node:fs';
+import { rmSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 
@@ -40,5 +40,13 @@ for (const dir of readdirSync(res)) {
   if (/^drawable-(land|night|port-night|port-ldpi)/.test(dir) || dir === 'drawable-night' || dir === 'mipmap-ldpi') {
     rmSync(join(res, dir), { recursive: true, force: true });
   }
+}
+// 시작 화면을 256색 팔레트 PNG로 다시 저장합니다(픽셀아트라 화질 차이 없음, 약 1.7MB → 0.5MB).
+// 설치 용량을 GRAC 심의 수수료 구간 10MB 미만으로 유지하기 위한 절약입니다.
+for (const dir of readdirSync(res)) {
+  const splash = join(res, dir, 'splash.png');
+  if (!dir.startsWith('drawable') || !existsSync(splash)) continue;
+  const png = await sharp(splash).png({ palette: true, colours: 256, dither: 0, compressionLevel: 9 }).toBuffer();
+  writeFileSync(splash, png);
 }
 console.log('안드로이드 아이콘·시작 화면을 갱신했습니다.');
