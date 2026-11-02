@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">자전거 부자 TEST</string>
-    <string name="title_activity_main">자전거 부자 TEST</string>
+    <string name="app_name">오늘부터 자전거 부자</string>
+    <string name="title_activity_main">오늘부터 자전거 부자</string>
     <string name="package_name">com.aigemro.dreambikegarage.test</string>
     <string name="custom_url_scheme">com.aigemro.dreambikegarage.test</string>
 </resources>

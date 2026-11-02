@@ -10,7 +10,7 @@
    - https://github.com/aigemro/dream-bike-garage/releases/download/android-test-latest/dream-bike-garage-test.apk
    - 목록 화면: https://github.com/aigemro/dream-bike-garage/releases/tag/android-test-latest
 2. 처음 한 번 브라우저(또는 파일 앱)에 **출처를 알 수 없는 앱 설치**를 허용합니다.
-3. 설치하면 홈 화면에 **자전거 부자 TEST** 아이콘이 생깁니다.
+3. 설치하면 홈 화면에 **오늘부터 자전거 부자** 아이콘이 생깁니다.
 
 새 빌드는 같은 서명 키로 만들어 **기존 앱 위에 덮어쓰기 설치**되고 게임 진행이 유지됩니다.
 
@@ -38,7 +38,7 @@
 
 ## 4. 구성
 
-- `capacitor.config.ts`: 앱 ID `com.aigemro.dreambikegarage.test`, 이름 `자전거 부자 TEST`, 웹 결과물 `dist-android`
+- `capacitor.config.ts`: 앱 ID `com.aigemro.dreambikegarage.test`, 이름 `오늘부터 자전거 부자`(GRAC 신청 제명과 같게), 웹 결과물 `dist-android`
 - `android/`: Capacitor 8이 만든 안드로이드 프로젝트(compile/target SDK 36, min 24). 웹 결과물 복사본(`app/src/main/assets/public`)은 git에서 제외
 - `src/platform/android-app-platform.ts`: 뒤로가기·앱 종료·앱 전환을 Capacitor App 플러그인으로 받음. 저장·진동은 웹과 같음
 - `npm run build:android`: `vite build --mode android` → `cap sync android`

@@ -47,9 +47,9 @@ class TitleLoadingScene extends Phaser.Scene {
     this.add.rectangle(270, 26, 6, 96, 0x6e3f28).setDepth(1);
     this.add.rectangle(195, 130, 330, 128, BROWN).setStrokeStyle(6, BORDER).setDepth(2);
     this.add.rectangle(195, 130, 306, 104, 0xa9683f).setStrokeStyle(3, 0x6e3f28).setDepth(2);
-    this.add.text(195, 106, 'DREAM BIKE', { fontFamily: FONT, fontSize: '34px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3);
-    this.add.text(195, 144, 'GARAGE', { fontFamily: FONT, fontSize: '30px', color: '#f4b84a', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3);
-    this.add.text(195, 174, '두리 자전거 공방', { fontFamily: FONT, fontSize: '11px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3);
+    // 게임 제명은 등급분류 신청 제명 '오늘부터 자전거 부자' 하나로만 표기한다 (GRAC 보완 요청)
+    this.add.text(195, 104, '오늘부터', { fontFamily: FONT, fontSize: '26px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3);
+    this.add.text(195, 148, '자전거 부자', { fontFamily: FONT, fontSize: '36px', color: '#f4b84a', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3);
 
     // 대표 장면: 드림 바이크 + 정비사 (스토어 대표 이미지 후보 구도)
     // 액자(y 254~498)는 간판 아래 60px, 로딩 바퀴 위 60px로 간격을 균등하게 둔다
@@ -66,7 +66,7 @@ class TitleLoadingScene extends Phaser.Scene {
     this.percentText = this.add.text(195, 668, '0%', { fontFamily: FONT, fontSize: '11px', color: INK, fontStyle: 'bold' }).setOrigin(0.5).setDepth(5);
     this.loadingLabel = this.add.text(195, 693, '공방 문을 여는 중…', { fontFamily: FONT, fontSize: '11px', color: '#fff1c6', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3);
 
-    this.add.text(195, 788, `Dream Bike Garage · v${APP_VERSION}`, { fontFamily: FONT, fontSize: '9px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3).setAlpha(0.8);
+    this.add.text(195, 788, `오늘부터 자전거 부자 · v${APP_VERSION}`, { fontFamily: FONT, fontSize: '9px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3).setAlpha(0.8);
 
     this.input.on('pointerdown', () => this.enterHome());
   }

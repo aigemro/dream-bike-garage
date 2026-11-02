@@ -41,8 +41,10 @@ android {
     buildTypes {
         release {
             signingConfig releaseKeystore ? signingConfigs.release : signingConfigs.debug
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // 코드·리소스 축소: 설치 용량을 10MB 미만으로 유지 (GRAC 심의 수수료 구간, 축소 전 약 12MB)
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }

@@ -114,7 +114,7 @@ class SettingsDrawerScene extends Phaser.Scene {
     resetButton.on('pointerdown', () => this.openResetConfirm());
 
     // 버전 표기 (서랍장 맨 아래 칸)
-    this.add.text(195, CHEST_BOTTOM - 18, `Dream Bike Garage · v${APP_VERSION}`, { fontFamily: FONT, fontSize: '10px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3);
+    this.add.text(195, CHEST_BOTTOM - 18, `오늘부터 자전거 부자 · v${APP_VERSION}`, { fontFamily: FONT, fontSize: '10px', color: '#ffe6a8' }).setOrigin(0.5).setDepth(3);
 
     // 바닥 장면: 정비사 말풍선에 안내 문구를 띄운다 (서랍장·캐릭터와 겹치지 않음)
     this.add.rectangle(BUBBLE_X + 3, BUBBLE_Y + 4, BUBBLE_WIDTH, BUBBLE_HEIGHT, BORDER).setDepth(8);
